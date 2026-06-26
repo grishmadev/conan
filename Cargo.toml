@@ -12,6 +12,27 @@ rust-version = "1.90"
 [workspace.dependencies]
 conan-protocol = { path = "protocol/" }
 conan-database = { path = "database/" }
+tokio = { version = "1.52.3", features = ["full"] }
+arti-client = { version = "0.43.0", features = [
+  "onion-service-client",
+  "onion-service-service",
+] }
+tor-hsservice = "0.43.0"
+tor-rtcompat = "0.43.0"
+tor-cell = "0.43.0"
+tor-hscrypto = "0.43.0"
+tokio-rustls = "0.26.4"
+rustls = "0.23.41"
+webpki-roots = "1.0.8"
+tracing-subscriber = "0.3.23"
+reqwest = "0.13.4"
+serde_json = "1.0.150"
+serde = { version = "1.0.228", features = ["derive"] }
+futures = "0.3.32"
+safelog = "0.8.2"
+x25519-dalek = "3.0.0-rc.1"
+rand = "0.10.1"
+
 
 [profile.release]
 lto = true

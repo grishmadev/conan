@@ -11,7 +11,23 @@ name = "conanprotocol"
 src = "src/lib.rs"
 doctest = false
 
-[dependencies]
-
 [lints]
 workspace = true
+
+[dependencies]
+arti-client.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+rustls.workspace = true
+webpki-roots.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tor-hsservice.workspace = true
+tor-rtcompat.workspace = true
+tor-cell.workspace = true
+tor-hscrypto.workspace = true
+futures.workspace = true
+safelog.workspace = true
+x25519-dalek.workspace = true
+rand.workspace = true

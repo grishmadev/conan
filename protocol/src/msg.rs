@@ -1,5 +1,11 @@
-use std::default;
+use serde::{Deserialize, Serialize};
 
+pub enum PeerVerified {
+    Verified,
+    Invalid,
+}
+
+#[derive(Default)]
 pub enum PeerStatus {
     Connected,
     #[default]
@@ -7,8 +13,11 @@ pub enum PeerStatus {
 }
 
 #[non_exhaustive]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum Msg {
     Text(String),
+    PublicKey([u8; 32]),
+    SignedAndPublicKey(Vec<u8>, [u8; 32]),
     Begin,
     End,
 }

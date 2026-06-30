@@ -1,9 +1,11 @@
-use conanprotocol::PeerConnection;
 use std::error::Error;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
-    let mut peer_connection = PeerConnection::create().await?;
-    peer_connection.init_server().await?;
+use conan::App;
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let mut terminal = ratatui::init();
+    let mut app = App::default();
+    app.manage_terminal(&mut terminal)?;
+    app.manage_keys()?;
     Ok(())
 }

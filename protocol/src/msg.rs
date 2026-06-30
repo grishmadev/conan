@@ -13,7 +13,7 @@ pub enum PeerStatus {
 }
 
 #[non_exhaustive]
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum Msg {
     Text(String),
     PublicKey([u8; 32]),

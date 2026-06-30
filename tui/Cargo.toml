@@ -17,6 +17,9 @@ conan-protocol.workspace = true
 conan-database.workspace = true
 tokio.workspace = true
 tracing-subscriber.workspace = true
+tor-hscrypto.workspace = true
+ratatui.workspace = true
+crossterm.workspace = true
 
 [lints]
 workspace = true

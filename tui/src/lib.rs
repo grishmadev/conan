@@ -80,10 +80,6 @@ impl App {
             }
             terminal.draw(|f| self.render_welcome(f))?;
         }
-        self.send(IPCCmd::StartServer).await?;
-        self.active_screen = Screen::LoadingScreen {
-            loading_text: "Starting Server..".to_string(),
-        };
         while self.running {
             terminal.draw(|f| {
                 self.set_layout(f, userid);
@@ -177,6 +173,7 @@ impl App {
     async fn send(&mut self, cmd: IPCCmd) -> std::io::Result<()> {
         let bytes = encode(cmd);
         self.stream.write_all(&bytes).await?;
+        self.stream.flush().await?;
         Ok(())
     }
 

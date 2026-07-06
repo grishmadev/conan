@@ -19,7 +19,7 @@ use crate::{
 };
 #[derive(Debug)]
 pub struct Slave {
-    pub reader: ReadHalf<DataStream>,
+    pub reader: Option<ReadHalf<DataStream>>,
     pub writer: WriteHalf<DataStream>,
     pub response_sender: broadcast::Sender<(u8, Msg)>,
     /// Shared secret key after diffie helmann exchange
@@ -31,17 +31,34 @@ impl Slave {
     /// Consumes Self to spawn a tokio thread that forwards data from reader to response channel
     /// Forwards as is, with no decryption
     /// Decryptions and filtering is handled by `Manager` entity
-    pub fn spawn_communication(self) {
+    ///
+    /// # Errors
+    /// # Panics
+    pub fn spawn_communication(&mut self) -> Result<(), Box<dyn Error>> {
+        let Some(mut reader) = self.reader.take() else {
+            return Err("No Reader Associated with Slave.".into());
+        };
+        let ssk = Arc::clone(&self.shared_secret_key);
+        let response_sender = self.response_sender.clone();
         tokio::spawn(async move {
-            let mut slave = self;
+            let mut buf = [0u8; 4096];
             loop {
-                while let Ok(msg_bytes) = slave.recv().await {
-                    let msg = Msg::from_bytes(&msg_bytes);
-                    let msg = (0, msg);
-                    _ = slave.response_sender.send(msg);
+                match reader.read(&mut buf).await {
+                    Ok(0) => {}
+                    Ok(n) => {
+                        let ssk = ssk.read().unwrap();
+                        let decrypted = decrypt(&ssk, &buf[..n]).unwrap();
+                        let msg = Msg::from_bytes(&decrypted);
+                        let msg = (0, msg);
+                        _ = response_sender.send(msg);
+                    }
+                    Err(e) => {
+                        eprintln!("Error writing to socket.\n{e}");
+                    }
                 }
             }
         });
+        Ok(())
     }
 
     pub async fn connect_as_listener(&mut self) -> Result<(), Box<dyn Error>> {
@@ -50,15 +67,21 @@ impl Slave {
         let signing_key = signing_key()?;
         let signature = signing_key.sign(local_public_key.as_bytes());
         let msg = Msg::SignedAndPublicKey(signature.to_vec(), *local_public_key.as_bytes());
+        debug!("SENDING msg:\n{:?}", msg);
         let payload = bincode::serde::encode_to_vec(msg, cfg::standard())?;
         debug!("Sending Signature & Public Key to peer.");
         self.writer.write_all(&payload).await?;
+        self.writer.flush().await?;
         let mut buf = [0u8; 4096];
         debug!("Reading peer's public key.");
-        let size = self.reader.read(&mut buf).await?;
+        let Some(reader) = self.reader.as_mut() else {
+            return Err("No reader found.".into());
+        };
+        let size = reader.read(&mut buf).await?;
         debug!("Parsing peer's public key.");
         let (recv_msg, _) =
             bincode::serde::decode_from_slice::<Msg, _>(&buf[..size], cfg::standard())?;
+        debug!("received msg: {:?}", recv_msg);
 
         if let Msg::PublicKey(remote_public_key) = recv_msg {
             let rpk = PublicKey::from(remote_public_key);
@@ -80,7 +103,7 @@ impl Slave {
     /// Decrypts message before returning
     pub async fn recv(&mut self) -> Result<Vec<u8>, Box<dyn Error>> {
         let mut buf = [0u8; 4096];
-        let size = self.reader.read(&mut buf).await?;
+        let size = self.reader.as_mut().unwrap().read(&mut buf).await?;
         let ssk = self.shared_secret_key.read().unwrap();
         let decrypted = decrypt(&ssk, &buf[..size])?;
         Ok(decrypted)

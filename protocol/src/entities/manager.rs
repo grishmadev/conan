@@ -31,10 +31,8 @@ pub struct Manager {
     response_sender: broadcast::Sender<(u8, Msg)>,
 
     stream: Option<BoxStream<'static, RendRequest>>,
-    service: Arc<RunningOnionService>,
+    _service: Arc<RunningOnionService>,
 
-    /// Channel for receiving tasks
-    pub worker_receiver: mpsc::Receiver<IPCCmd>,
     /// Channel for sending message to Master
     pub msg_sender: broadcast::Sender<IPCRes>,
     /// Used for receiving messages from Slaves and transferring them to Master
@@ -45,10 +43,7 @@ pub struct Manager {
 
 impl Manager {
     /// # Errors
-    pub async fn create(
-        worker_receiver: mpsc::Receiver<IPCCmd>,
-        msg_sender: broadcast::Sender<IPCRes>,
-    ) -> Result<Self, Box<dyn Error>> {
+    pub async fn create(msg_sender: broadcast::Sender<IPCRes>) -> Result<Self, Box<dyn Error>> {
         let config = parse_config()?;
         let arti_store = config.arti_key_store;
         let mut tor_config_builder = TorClientConfig::builder();
@@ -82,8 +77,7 @@ impl Manager {
             tor_client,
             peers: Arc::new(Mutex::new(HashMap::new())),
             stream: Some(request_stream.boxed()),
-            service,
-            worker_receiver,
+            _service: service,
             msg_sender,
             response_receiver,
             response_sender,
@@ -95,40 +89,51 @@ impl Manager {
         let mut stream = self.stream.take().unwrap();
 
         // spawn a thread for handling connections from network
-        let msg_sen = self.msg_sender.clone();
+        let msg_sender = self.msg_sender.clone();
         let response_sender = self.response_sender.clone();
+        let peers = Arc::clone(&self.peers);
         tokio::spawn(async move {
-            let msg_sen = msg_sen.clone();
+            let msg_sender = msg_sender.clone();
             let response_sender = response_sender.clone();
+            let peers = Arc::clone(&peers);
             loop {
                 while let Some(rendreq) = stream.next().await {
-                    let msg_sen = msg_sen.clone();
+                    let msg_sender = msg_sender.clone();
                     let response_sender = response_sender.clone();
+                    let peers = Arc::clone(&peers);
                     println!("Client Detected.");
                     tokio::spawn(async move {
                         match rendreq.accept().await {
                             Ok(mut stream) => {
                                 while let Some(strreq) = stream.next().await {
-                                    let msg_sen = msg_sen.clone();
+                                    let msg_sender = msg_sender.clone();
                                     let response_sender = response_sender.clone();
                                     match strreq.accept(Connected::new_empty()).await {
                                         Ok(stream) => {
                                             let (reader, writer) = tokio::io::split(stream);
                                             let mut conn = Slave {
-                                                reader,
+                                                reader: Some(reader),
                                                 writer,
-                                                msg_sender: msg_sen,
+                                                msg_sender,
                                                 response_sender,
                                                 shared_secret_key: Arc::new(RwLock::new([0u8; 32])),
                                             };
-                                            if let Err(e) = conn.connect_as_listener().await {
-                                                eprintln!("Cannot connect to peer.\n{e}");
-                                                continue;
-                                            };
-                                            conn.spawn_communication();
-                                            // let mut guard = peers.lock().unwrap();
-                                            // let idx = guard.len() as u8;
-                                            // guard.insert(idx, conn);
+                                            // loop {
+                                            conn.connect_as_listener().await.unwrap();
+                                            // {
+                                            //     Ok(_) => break,
+                                            //     Err(e) => {
+                                            //         eprintln!("Cannot connect to peer.\n{e}");
+                                            //         println!("Retrying...");
+                                            //     }
+                                            // }
+                                            // }
+                                            if conn.spawn_communication().is_ok() {
+                                                let mut guard = peers.lock().unwrap();
+                                                #[allow(clippy::cast_possible_truncation)]
+                                                let idx = guard.len() as u8;
+                                                guard.insert(idx, conn);
+                                            }
                                         }
                                         Err(e) => {
                                             eprintln!("Error in connecting to peer: {e}");
@@ -150,26 +155,35 @@ impl Manager {
 
     /// Connects to Peer's Tor Address as a dialer (Seeking connection)
     /// # Errors
+    /// # Panics
     pub async fn connect_as_dialer(
         &mut self,
         peer_addr: (String, u16),
     ) -> Result<PeerStatus, Box<dyn Error>> {
-        let stream = self.tor_client.connect(&peer_addr).await?;
+        debug!("Connecting to peer...");
+        let stream = loop {
+            match self.tor_client.connect(&peer_addr).await {
+                Ok(s) => break s,
+                Err(e) => eprintln!("Error while connecting: {e}"),
+            }
+        };
         let (mut reader, mut writer) = tokio::io::split(stream);
-        let mut buf = [0u8; 4096];
+        let mut buf = [0u8; 4096 * 4];
         let size = reader.read(&mut buf).await?;
 
         let (de_msg, _) =
             bincode::serde::decode_from_slice::<Msg, _>(&buf[..size], cfg::standard())?;
+        debug!("received msg: {:?}", de_msg);
 
         let local_private_key = EphemeralSecret::random_from_rng(OsRng);
         let mut remote_public_key = None;
         println!("Performing X25519 Handshake.");
         self.x25519_handshake(&mut remote_public_key, &peer_addr, de_msg)?;
-
         let local_public_key = PublicKey::from(&local_private_key);
         let msg = Msg::PublicKey(*local_public_key.as_bytes());
+        debug!("SENDING msg:\n{:?}", msg);
         let msg_bytes = bincode::serde::encode_to_vec(msg, cfg::standard())?;
+
         writer.write_all(&msg_bytes).await?;
         writer.flush().await?;
         println!("Handshake Complete. Performing Elliptical Diffie-Hellman key exchange.");
@@ -190,14 +204,20 @@ impl Manager {
         let Some(shared_secret_key) = shared_secret_key else {
             return Err("Couldn't get Shared Secret Key.".into());
         };
-        let conn = Slave {
-            reader,
+        let mut conn = Slave {
+            reader: Some(reader),
             writer,
             msg_sender: msg_sen,
             response_sender,
             shared_secret_key: Arc::new(RwLock::new(shared_secret_key)),
         };
-        conn.spawn_communication();
+        _ = conn.spawn_communication();
+        {
+            let mut peers = self.peers.lock().unwrap();
+            #[allow(clippy::cast_possible_truncation)]
+            let idx = peers.len() as u8 + 1;
+            peers.insert(idx, conn);
+        }
         println!("Exchange Complete..");
         Ok(PeerStatus::Connected)
     }
@@ -248,6 +268,8 @@ impl Manager {
         Ok(())
     }
 
+    /// Used to setup Slave to Master communication Pipeline
+    /// # Errors
     pub fn setup_slave_communication(&mut self) -> Result<(), Box<dyn Error>> {
         let mut rec = self.response_receiver.resubscribe();
         let sen = self.msg_sender.clone();

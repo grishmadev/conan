@@ -42,7 +42,6 @@ impl Master {
             eprintln!("Something wrong with config file.");
             return Ok(());
         };
-        println!("config: {config:#?}");
         let sock_path = config.socket_path.clone();
         let mut sock_dir = sock_path.split('/').collect::<Vec<_>>();
         sock_dir.pop();
@@ -84,6 +83,7 @@ impl Master {
                                         continue;
                                     }
                                 };
+                                println!("Received Command: : {cmd:?}");
                                 if let Err(e) = worker_sen.send(cmd) {
                                     eprintln!("Error while writing to worker channel. {e}");
                                 }
@@ -102,6 +102,7 @@ impl Master {
                         let mut msg_rec = msg_rec.resubscribe();
                         match msg_rec.recv().await {
                             Ok(res) => {
+                                println!("Sending Message: {res:?}");
                                 let res_bytes = encode(res);
                                 _ = sock_writer.write_all(&res_bytes).await;
                                 _ = sock_writer.flush().await;

@@ -622,8 +622,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
+ "js-sys",
  "num-traits",
  "serde",
+ "wasm-bindgen",
  "windows-link",
 ]
 
@@ -770,21 +772,12 @@ version = "1.0.0"
 dependencies = [
  "bincode",
  "clap",
- "conan-database",
  "conan-protocol",
  "crossterm",
  "ratatui",
  "tokio",
  "tor-hscrypto",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "conan-database"
-version = "1.0.0"
-dependencies = [
- "conan-protocol",
- "rusqlite",
 ]
 
 [[package]]
@@ -795,6 +788,7 @@ dependencies = [
  "base64",
  "bincode",
  "chacha20poly1305",
+ "chrono",
  "clap",
  "config",
  "ed25519-dalek",
@@ -802,6 +796,7 @@ dependencies = [
  "hkdf 0.13.0",
  "rand 0.10.1",
  "reqwest",
+ "rusqlite",
  "rustls",
  "safelog",
  "serde",
@@ -825,7 +820,6 @@ version = "1.0.0"
 dependencies = [
  "bincode",
  "clap",
- "conan-database",
  "conan-protocol",
  "tokio",
  "tor-hsservice",

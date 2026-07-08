@@ -23,3 +23,6 @@ pub const DAEMON_DIRECTORY: &str = "/var/conan";
 
 /// Config File Path
 pub const CONFIG_PATH: &str = "/.conan/conan.toml";
+
+/// Databse Path
+pub const DATABASE_PATH: &str = "/.conan/database";

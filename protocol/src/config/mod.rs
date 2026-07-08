@@ -3,7 +3,7 @@ use std::{env, fs};
 use clap::Parser;
 use config::{Config, FileFormat};
 
-use crate::constants::{ARTI_KEYSTORE, CACHE_PATH, CONFIG_PATH, DAEMON_SOCKET};
+use crate::constants::{ARTI_KEYSTORE, CACHE_PATH, CONFIG_PATH, DAEMON_SOCKET, DATABASE_PATH};
 
 #[derive(Debug, Parser)]
 #[command(about, version, long_about = None)]
@@ -23,6 +23,10 @@ pub struct ConanArgs {
     /// Cache Storage Path
     #[arg(short = 'C', long = "cache", default_value = None)]
     pub cache: Option<String>,
+
+    /// Database path
+    #[arg(short = 'd', long = "db", default_value = None)]
+    pub db_path: Option<String>,
 }
 
 #[derive(Debug)]
@@ -30,6 +34,7 @@ pub struct ConanConfig {
     pub socket_path: String,
     pub arti_key_store: String,
     pub cache_path: String,
+    pub db_path: String,
 }
 
 /// Function to decide final config
@@ -84,11 +89,24 @@ pub fn parse_config() -> Result<ConanConfig, Box<dyn std::error::Error>> {
     } else {
         CACHE_PATH.to_string()
     };
+
+    let db_path = if let Some(c) = args.db_path {
+        c
+    } else if let Some(ref db) = config
+        && let Ok(path) = db.get_string("database-path")
+    {
+        path
+    } else {
+        let mut db_path = home_path.clone();
+        db_path.push_str(DATABASE_PATH);
+        db_path
+    };
     _ = fs::create_dir(&cache_path);
     let res = ConanConfig {
         socket_path,
         arti_key_store,
         cache_path,
+        db_path,
     };
 
     Ok(res)

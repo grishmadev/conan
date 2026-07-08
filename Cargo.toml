@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["tui", "server", "database", "protocol"]
+members = ["tui", "server", "database", "protocol", "xtask"]
 
 [workspace.package]
 authors = ["grishma <grishmadev@proton.me>"]
@@ -45,6 +45,8 @@ clap = { version = "4.6.1", features = ["derive"] }
 config = "0.15.25"
 ssh-encoding = { version = "0.3.0", features = ["alloc"] }
 base64 = "0.22.1"
+rusqlite = "0.36.0"
+notify-rust = "4.18.0"
 
 
 [profile.release]

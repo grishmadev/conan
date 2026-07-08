@@ -1,18 +1,14 @@
 [package]
-name = "conan-database"
+name = "xtask"
 authors.workspace = true
 version.workspace = true
 license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
-[lib]
-name = "conandatabase"
-doctest = false
-
 [dependencies]
-rusqlite.workspace = true
 conan-protocol.workspace = true
+rusqlite.workspace = true
 
 [lints]
 workspace = true

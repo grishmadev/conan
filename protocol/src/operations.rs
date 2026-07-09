@@ -9,7 +9,6 @@ use chacha20poly1305::{
 };
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use hkdf::Hkdf;
-use safelog::DisplayRedacted;
 use sha2::Sha256;
 use ssh_encoding::Decode;
 use std::{error::Error, fs::File, io::Read, str::FromStr};
@@ -129,39 +128,38 @@ pub fn signing_key(arti_key_store: String) -> Result<ExpandedKeypair, Box<dyn Er
 /// # Errors
 pub fn x25519_handshake(
     remote_public_key: &mut Option<PublicKey>,
+    local_public_key: PublicKey,
     peer_addr: &(String, u16),
     msg: Msg,
 ) -> Result<(), Box<dyn Error>> {
-    let Msg::SignedAndPublicKey(signature, claimed_remote_public_key) = msg else {
+    let Msg::SignedAndPublicKey(signature, claimed_local_public_key, claimed_remote_public_key) =
+        msg
+    else {
         return Err("No Signed Public key found.".into());
     };
+    let local_public_key = local_public_key.as_bytes();
+    if local_public_key != &claimed_local_public_key {
+        return Err("local key mismatch. Aborting.".into());
+    }
     let hsid = HsId::from_str(&peer_addr.0)?;
     let hsid_bytes = hsid.as_ref();
     let verifying_key = VerifyingKey::from_bytes(hsid_bytes)?;
     let signature = Signature::try_from(&signature[..])?;
-    verifying_key.verify(&claimed_remote_public_key, &signature)?;
+    let mut combined_key = vec![];
+    combined_key.extend_from_slice(local_public_key);
+    combined_key.extend_from_slice(&claimed_remote_public_key);
+    verifying_key.verify(&combined_key, &signature)?;
     *remote_public_key = Some(PublicKey::from(claimed_remote_public_key));
     Ok(())
 }
 
 /// Performs Elliptical Diffie Hellman key exchange.
 /// # Errors
-pub async fn edhverify<T>(
-    writer: &mut WriteHalf<T>,
+pub fn edhverify(
     local_private_key: EphemeralSecret,
     remote_public_key: PublicKey,
     ssk: &mut Option<[u8; 32]>,
-) -> Result<(), Box<dyn Error>>
-where
-    T: AsyncWriteExt,
-{
-    let local_public_key = PublicKey::from(&local_private_key);
+) {
     let shared_secret_key = local_private_key.diffie_hellman(&remote_public_key);
-    let msg_bytes = Msg::PublicKey(*local_public_key.as_bytes()).to_vec();
-    writer.write_u16(msg_bytes.len() as u16).await?;
-    writer.write_all(&msg_bytes).await?;
-    writer.flush().await?;
     *ssk = Some(*shared_secret_key.as_bytes());
-
-    Ok(())
 }

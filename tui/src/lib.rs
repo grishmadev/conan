@@ -8,7 +8,10 @@ use std::{
 };
 
 use bincode::config;
-use conanprotocol::comm::enums::{IPCCmd, IPCRes, encode};
+use conanprotocol::{
+    comm::enums::{IPCCmd, IPCRes, encode},
+    database_entities::peer::Peer,
+};
 use ratatui::{
     Frame, Terminal,
     layout::{Constraint, Direction, HorizontalAlignment, Layout},
@@ -19,6 +22,7 @@ use ratatui::{
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::UnixStream,
+    sync::broadcast,
 };
 
 use crate::{
@@ -37,18 +41,28 @@ pub struct App {
     pub stream: UnixStream,
     pub active_screen: Screen,
     pub running: bool,
+    pub time: Instant,
+    pub contacts: Vec<Peer>,
+    pub sender: broadcast::Sender<IPCCmd>,
+    pub receiver: broadcast::Receiver<IPCCmd>,
 }
 
 impl App {
     /// # Errors
     pub async fn create(socket_path: &str) -> std::io::Result<Self> {
         let stream = UnixStream::connect(socket_path).await?;
+        let time = Instant::now();
+        let (sender, receiver) = tokio::sync::broadcast::channel::<IPCCmd>(100);
         Ok(Self {
             tab: Tab::None,
             notification: None,
             stream,
+            contacts: vec![],
             active_screen: Screen::None,
             running: true,
+            time,
+            sender,
+            receiver,
         })
     }
     /// # Errors
@@ -66,11 +80,26 @@ impl App {
             }
             terminal.draw(|f| self.render_welcome(f))?;
         }
+        let sender = self.sender.clone();
+        tokio::spawn(async move {
+            loop {
+                _ = sender.send(IPCCmd::Tick);
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        });
         while self.running {
             terminal.draw(|f| {
                 self.set_layout(f, userid);
                 self.render(f);
             })?;
+            if let Ok(s) = self.receiver.try_recv() {
+                match s {
+                    IPCCmd::Tick => {
+                        self.send(IPCCmd::PeerList).await?;
+                    }
+                    _ => {}
+                }
+            }
             self.manage_keys().await?;
             self.manage_ipc()?;
         }
@@ -94,6 +123,13 @@ impl App {
                             Some(("Connected to Peer.".to_string(), Instant::now()));
                     }
                 }
+                IPCRes::Error(text) => {
+                    self.notification = Some((text, Instant::now()));
+                    if matches!(self.active_screen, Screen::LoadingScreen { .. }) {
+                        self.active_screen = Screen::None;
+                    }
+                }
+                IPCRes::PeerList(peers) => self.contacts = peers,
                 _ => {}
             }
         }
@@ -115,13 +151,19 @@ impl App {
             .margin(1)
             .direction(Direction::Horizontal)
             .split(inner_block);
-        let list = ["John Doe", "Jennie"].to_vec();
         let selected = matches!(self.tab, Tab::Contact { .. });
 
         // left chunk
-        self.render_contact_list(f, &list, 0, chunks[0], selected);
+        let names = self
+            .contacts
+            .clone()
+            .iter_mut()
+            .map(|f| f.name.take().unwrap_or("Unknown Peer".to_string()))
+            .collect::<Vec<_>>();
+        self.render_contact_list(f, names, 0, chunks[0], selected);
         // right chunk
-        self.render_chats(f, true, chunks[1]);
+        let selected = matches!(self.tab, Tab::Chat);
+        self.render_chats(f, selected, chunks[1]);
 
         f.render_widget(main_block, area);
     }

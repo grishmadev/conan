@@ -3,6 +3,7 @@ pub mod config;
 pub mod constants;
 pub mod database;
 pub mod database_entities;
+pub mod extras;
 pub mod msg;
 pub mod operations;
 pub mod requests;

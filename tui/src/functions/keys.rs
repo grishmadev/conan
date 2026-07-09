@@ -87,10 +87,7 @@ impl Keys for App {
                     }
                     _ => {}
                 },
-                Screen::LoadingScreen { .. } => match key.code {
-                    KeyCode::Esc => self.active_screen = Screen::None,
-                    _ => {}
-                },
+                Screen::LoadingScreen { .. } => {}
                 Screen::ConfirmScreen {
                     ref options,
                     ref mut idx,
@@ -110,7 +107,6 @@ impl Keys for App {
                             *idx += 1;
                         }
                     }
-                    // KeyCode::Enter => {}
                     _ => {}
                 },
             }

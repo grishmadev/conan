@@ -1,10 +1,13 @@
-use arti_client::{BootstrapBehavior, TorClient, TorClientConfig, config::CfgPath};
+use arti_client::{BootstrapBehavior, DataStream, TorClient, TorClientConfig, config::CfgPath};
 use ed25519_dalek::ed25519::signature::rand_core::OsRng;
 use futures::{StreamExt, stream::BoxStream};
+use rand::random_range;
 use safelog::DisplayRedacted;
 use std::{
     collections::HashMap,
     error::Error,
+    ops::Add,
+    str::FromStr,
     sync::{Arc, Mutex, RwLock},
     time::Duration,
 };
@@ -13,15 +16,18 @@ use tokio::{
     sync::broadcast,
 };
 use tor_cell::relaycell::msg::Connected;
-use tor_hsservice::{HsNickname, OnionServiceConfig, RendRequest, RunningOnionService};
+use tor_hsservice::{HsId, HsNickname, OnionServiceConfig, RendRequest, RunningOnionService};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
 use crate::{
     comm::enums::IPCRes,
     config::parse_config,
+    database::DBConnection,
+    database_entities::peer::{Peer, PeerData},
     debug,
+    extras::generate_name,
     msg::{Msg, PeerStatus},
-    operations::{edhverify, x25519_handshake},
+    operations::{edhverify, encrypt, signing_key, x25519_handshake},
     server_entities::slave::Slave,
 };
 
@@ -32,6 +38,7 @@ pub struct Manager {
 
     stream: Option<BoxStream<'static, RendRequest>>,
     _service: Arc<RunningOnionService>,
+    pub dbconn: DBConnection,
 
     /// Channel for sending message to Master
     pub msg_sender: broadcast::Sender<IPCRes>,
@@ -74,13 +81,20 @@ impl Manager {
             None => return Err("No HsId found.".into()),
         };
         println!("Server Address: {}", hsid.display_unredacted());
+        let conn = DBConnection::build()?;
+        conn.execute(&format!(
+            "INSERT OR REPLACE INTO peer (id, name, address) VALUES (1, 'Me', '{}')",
+            hsid.display_unredacted()
+        ))?;
         let (response_sender, response_receiver) = broadcast::channel::<(u8, Msg)>(100);
+        let dbconn = DBConnection::build()?;
 
         Ok(Self {
             tor_client,
             peers: Arc::new(Mutex::new(HashMap::new())),
             stream: Some(request_stream.boxed()),
             _service: service,
+            dbconn,
             msg_sender,
             response_receiver,
             response_sender,
@@ -155,70 +169,113 @@ impl Manager {
     /// Connects to Peer's Tor Address as a dialer (Seeking connection)
     /// # Errors
     /// # Panics
-    pub async fn connect_as_dialer(
+    pub fn connect_as_dialer(
         &mut self,
         peer_addr: (String, u16),
     ) -> Result<PeerStatus, Box<dyn Error>> {
-        println!("Connecting to peer...");
-        let stream = loop {
-            match self.tor_client.connect(&peer_addr).await {
-                Ok(s) => break s,
-                Err(e) => eprintln!("Error while connecting: {e}"),
-            }
-        };
-        let (mut reader, mut writer) = tokio::io::split(stream);
-        let size = reader.read_u16().await? as usize;
-        let mut buf = vec![0u8; size];
-        let size = reader.read_exact(&mut buf).await?;
-
-        let de_msg = Msg::from_bytes(&buf[..size]);
-
-        let local_private_key = EphemeralSecret::random_from_rng(OsRng);
-        let mut remote_public_key = None;
-        println!("Performing X25519 Handshake.");
-        x25519_handshake(&mut remote_public_key, &peer_addr, de_msg)?;
-        let local_public_key = PublicKey::from(&local_private_key);
-        let msg = Msg::PublicKey(local_public_key.to_bytes());
-        let msg_bytes = msg.to_vec();
-
-        #[allow(clippy::cast_possible_truncation)]
-        writer.write_u16(msg_bytes.len() as u16).await?;
-        writer.write_all(&msg_bytes).await?;
-        writer.flush().await?;
-        println!("Handshake Complete. Performing Elliptical Diffie-Hellman key exchange.");
-        // At this point, we know remote_public_key is filled
-        let Some(remote_public_key) = remote_public_key else {
-            return Err("Remote Public Key not set.".into());
-        };
-        let mut shared_secret_key = None;
-        edhverify(
-            &mut writer,
-            local_private_key,
-            remote_public_key,
-            &mut shared_secret_key,
-        )
-        .await?;
-        let msg_sen = self.msg_sender.clone();
+        let tor_client = Arc::clone(&self.tor_client);
+        let msg_sender = self.msg_sender.clone();
+        let db_conn = DBConnection::build()?;
         let response_sender = self.response_sender.clone();
-        let Some(shared_secret_key) = shared_secret_key else {
-            return Err("Couldn't get Shared Secret Key.".into());
-        };
-        let mut conn = Slave {
-            reader: Some(reader),
-            writer,
-            msg_sender: msg_sen,
-            response_sender,
-            shared_secret_key: Arc::new(RwLock::new(shared_secret_key)),
-        };
-        _ = conn.spawn_communication();
-        {
-            let mut peers = self.peers.lock().unwrap();
+        let peers = Arc::clone(&self.peers);
+        let local_hsid = self
+            ._service
+            .onion_address()
+            .ok_or("Onion Address Not found.")?;
+        tokio::spawn(async move {
+            println!("Connecting to peer...");
+            let mut stream = None;
+
+            for _ in 0..5 {
+                match tor_client.connect(&peer_addr).await {
+                    Ok(s) => {
+                        stream = Some(s);
+                        break;
+                    }
+                    Err(e) => eprintln!("Error while connecting: {e}"),
+                }
+                eprintln!("Retrying...");
+            }
+            let Some(stream) = stream else {
+                msg_sender.send(IPCRes::Error(format!(
+                    "Could not connect to {}. Make sure the address is correct and server active..",
+                    peer_addr.0
+                ))).unwrap();
+                return;
+            };
+            let (mut reader, mut writer) = tokio::io::split(stream);
+            // writing x25519 public key to stream
+            let local_private_key = EphemeralSecret::random_from_rng(OsRng);
+            let local_public_key = PublicKey::from(&local_private_key);
+            let msg = Msg::PublicKey(local_public_key.to_bytes());
+            let msg_bytes = msg.to_vec();
             #[allow(clippy::cast_possible_truncation)]
-            let idx = peers.len() as u8 + 1;
-            peers.insert(idx, conn);
-        }
-        println!("Exchange Complete..");
-        self.msg_sender.send(IPCRes::Connected(peer_addr.0, 80))?;
+            writer.write_u16(msg_bytes.len() as u16).await.unwrap();
+            writer.write_all(&msg_bytes).await.unwrap();
+            writer.flush().await.unwrap();
+
+            let size = reader.read_u16().await.unwrap() as usize;
+            let mut buf = vec![0u8; size];
+            let size = reader.read_exact(&mut buf).await.unwrap();
+            let de_msg = Msg::from_bytes(&buf[..size]);
+
+            let mut remote_public_key = None;
+            println!("Performing X25519 Handshake.");
+            x25519_handshake(&mut remote_public_key, local_public_key, &peer_addr, de_msg).unwrap();
+            let Some(remote_public_key) = remote_public_key else {
+                msg_sender
+                    .send(IPCRes::Error("Remote Public Key not set.".into()))
+                    .unwrap();
+                return;
+            };
+            let mut shared_secret_key = None;
+            edhverify(local_private_key, remote_public_key, &mut shared_secret_key);
+            let Some(shared_secret_key) = shared_secret_key else {
+                msg_sender.send(IPCRes::Error("Couldn't get Shared Secret Key.".into()));
+                return;
+            };
+            let config = parse_config().unwrap().arti_key_store;
+            let signing_key = signing_key(config).unwrap();
+            let mut data = vec![];
+            data.extend_from_slice(remote_public_key.as_bytes());
+            data.extend_from_slice(local_public_key.as_bytes());
+            let data: [u8; 64] = data.try_into().unwrap();
+            let signature = signing_key.sign(&data);
+            let local_hsid_bytes = local_hsid.as_ref();
+            let remote_hsid = HsId::from_str(&peer_addr.0).unwrap();
+            let remote_hsid_bytes = remote_hsid.as_ref();
+            let msg = Msg::SignedAndPublicKey(
+                signature.to_bytes().to_vec(),
+                *local_hsid_bytes,
+                *remote_hsid_bytes,
+            );
+            let encrypted = encrypt(&shared_secret_key, &msg.to_vec()).unwrap();
+            #[allow(clippy::cast_possible_truncation)]
+            writer.write_u16(encrypted.len() as u16).await.unwrap();
+            writer.write_all(&encrypted).await.unwrap();
+            writer.flush().await.unwrap();
+
+            println!("Handshake Complete. Performing Elliptical Diffie-Hellman key exchange.");
+            // At this point, we know remote_public_key is filled
+            let mut conn = Slave {
+                reader: Some(reader),
+                writer,
+                msg_sender: msg_sender.clone(),
+                response_sender,
+                shared_secret_key: Arc::new(RwLock::new(shared_secret_key)),
+            };
+            _ = conn.spawn_communication();
+            {
+                let mut peers = peers.lock().unwrap();
+                #[allow(clippy::cast_possible_truncation)]
+                let idx = peers.len() as u8 + 1;
+                peers.insert(idx, conn);
+            }
+            println!("Exchange Complete..");
+            let peer = Peer::build(&generate_name(random_range(3..10)), &peer_addr.0);
+            db_conn.insert_peer(peer).unwrap();
+            msg_sender.send(IPCRes::Connected(peer_addr.0, 80)).unwrap();
+        });
         Ok(PeerStatus::Connected)
     }
 

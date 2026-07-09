@@ -1,7 +1,10 @@
 use std::error::Error;
 
+use bincode::{Decode, Encode};
+
 use crate::database::DBConnection;
 
+#[derive(Debug, Decode, Encode, Clone, PartialEq, Eq)]
 pub struct Peer {
     pub id: u32,
     pub name: Option<String>,

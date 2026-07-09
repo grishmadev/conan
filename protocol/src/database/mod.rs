@@ -18,4 +18,8 @@ impl DBConnection {
             connection: Connection::open(config)?,
         })
     }
+
+    pub fn execute(&self, query: &str) -> Result<usize, rusqlite::Error> {
+        self.connection.execute(query, ())
+    }
 }

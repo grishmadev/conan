@@ -3,12 +3,16 @@ use std::error::Error;
 use bincode::{Decode, Encode, config};
 use serde::{Serialize, de::DeserializeOwned};
 
+use crate::database_entities::{chat::Chat, peer::Peer};
+
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode)]
 #[non_exhaustive]
 pub enum IPCCmd {
     StartServer,
     Connect(String, u16),
     Text(u8, String),
+    PeerList,
+    ChatList { peer_id: u8, msg_amount: u8 },
     Tick,
 }
 
@@ -19,6 +23,8 @@ pub enum IPCRes {
     Connected(String, u16),
     Text(u8, String),
     Error(String),
+    PeerList(Vec<Peer>),
+    ChatList { peer_id: u8, chats: Vec<Chat> },
     Tock,
 }
 

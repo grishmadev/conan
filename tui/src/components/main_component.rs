@@ -14,7 +14,7 @@ pub trait MainComponents {
     fn render_contact_list(
         &self,
         f: &mut Frame<'_>,
-        list: &[&str],
+        list: Vec<String>,
         idx: usize,
         area: Rect,
         selected: bool,
@@ -38,7 +38,7 @@ impl MainComponents for App {
     fn render_contact_list(
         &self,
         f: &mut Frame<'_>,
-        list: &[&str],
+        list: Vec<String>,
         idx: usize,
         area: Rect,
         selected: bool,
@@ -55,7 +55,7 @@ impl MainComponents for App {
         };
         let list_items = list
             .iter()
-            .map(|i| ListItem::new(*i).style(Style::default()))
+            .map(|i| ListItem::new(i.clone()).style(Style::default()))
             .collect::<Vec<_>>();
         let contact_list = List::new(list_items)
             .block(left_block)

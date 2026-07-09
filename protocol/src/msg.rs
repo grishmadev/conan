@@ -24,7 +24,7 @@ pub enum Internal {
 pub enum Msg {
     Text(String),
     PublicKey([u8; 32]),
-    SignedAndPublicKey(Vec<u8>, [u8; 32]),
+    SignedAndPublicKey(Vec<u8>, [u8; 32], [u8; 32]),
     Begin,
     End,
 }

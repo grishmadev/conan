@@ -13,6 +13,8 @@ use x25519_dalek::{EphemeralSecret, PublicKey};
 use crate::{
     comm::enums::IPCRes,
     config::parse_config,
+    database::DBConnection,
+    database_entities::peer::{Peer, PeerData},
     msg::Msg,
     operations::{decrypt, encrypt, signing_key},
 };
@@ -67,13 +69,31 @@ impl Slave {
     /// # Panics
     /// # Errors
     pub async fn connect_as_listener(&mut self) -> Result<(), Box<dyn Error>> {
+        let Some(reader) = self.reader.as_mut() else {
+            return Err("No reader found.".into());
+        };
+        let size = reader.read_u16().await? as usize;
+        let mut buf = vec![0u8; size];
+        let size = reader.read_exact(&mut buf).await?;
+        let recv_msg = Msg::from_bytes(&buf[..size]);
+
+        let Msg::PublicKey(remote_public_key) = recv_msg else {
+            return Err("Did not receive remote public key. aborting.".into());
+        };
         let config = parse_config()?;
         let local_private_key = EphemeralSecret::random_from_rng(OsRng);
         let local_public_key = PublicKey::from(&local_private_key);
         let signing_key = signing_key(config.arti_key_store)?;
-        let signature = signing_key.sign(local_public_key.as_bytes());
-        let msg =
-            Msg::SignedAndPublicKey(signature.to_bytes().to_vec(), *local_public_key.as_bytes());
+        let mut data = vec![];
+        data.extend_from_slice(&remote_public_key);
+        data.extend_from_slice(local_public_key.as_bytes());
+        let data: [u8; 64] = data.try_into().unwrap();
+        let signature = signing_key.sign(&data);
+        let msg = Msg::SignedAndPublicKey(
+            signature.to_bytes().to_vec(),
+            remote_public_key,
+            local_public_key.to_bytes(),
+        );
         let payload = msg.to_vec();
         println!("Sending Signature & Public Key to peer.");
         #[allow(clippy::cast_possible_truncation)]
@@ -81,9 +101,6 @@ impl Slave {
         self.writer.write_all(&payload).await?;
         self.writer.flush().await?;
         println!("Reading peer's public key.");
-        let Some(reader) = self.reader.as_mut() else {
-            return Err("No reader found.".into());
-        };
         let size = reader.read_u16().await? as usize;
         let mut buf = vec![0u8; size];
         let size = reader.read_exact(&mut buf).await?;
@@ -96,7 +113,7 @@ impl Slave {
         let rpk = PublicKey::from(remote_public_key);
         let shared_secret_key = local_private_key.diffie_hellman(&rpk);
         *self.shared_secret_key.write().unwrap() = *shared_secret_key.as_bytes();
-        reader.read_to_end(&mut vec![]).await?;
+        // reader.read_to_end(&mut vec![]).await?;
         println!("Verification Complete.");
         Ok(())
     }

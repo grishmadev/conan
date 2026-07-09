@@ -1,5 +1,7 @@
 use conanprotocol::{
     comm::enums::{IPCCmd, IPCRes},
+    database::DBConnection,
+    database_entities::{chat::ChatData, peer::PeerData},
     msg::Msg,
     server_entities::{manager::Manager, master::Master},
 };
@@ -21,10 +23,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     loop {
         if let Ok(s) = worker_receiver.recv() {
             match s {
+                IPCCmd::Tick => {
+                    manager.msg_sender.send(IPCRes::Tock)?;
+                }
                 IPCCmd::Connect(addr, port) => {
                     for _ in 0..5 {
-                        match manager.connect_as_dialer((addr.clone(), port)).await {
-                            Ok(_) => break,
+                        match manager.connect_as_dialer((addr.clone(), port)) {
+                            Ok(_) => {
+                                break;
+                            }
                             Err(e) => eprintln!("Cannot connect as Dialer:\n{e}"),
                         }
                     }
@@ -32,14 +39,31 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 IPCCmd::Text(idx, text) => {
                     let mut peers = manager.peers.lock().unwrap();
                     let Some(target) = peers.get_mut(&idx) else {
-                        eprintln!("Something");
+                        eprintln!("Could not find peer.");
                         continue;
                     };
                     let encoded = Msg::Text(text).to_vec();
                     target.send(encoded).await?;
                 }
+                IPCCmd::PeerList => {
+                    let peers = manager.dbconn.list_all_peers()?;
+                    manager.msg_sender.send(IPCRes::PeerList(peers))?;
+                }
+                IPCCmd::ChatList {
+                    peer_id,
+                    msg_amount,
+                } => {
+                    let chats = manager.dbconn.list_chat_from(peer_id, msg_amount)?;
+                    manager
+                        .msg_sender
+                        .send(IPCRes::ChatList { peer_id, chats })?;
+                }
                 _ => unimplemented!(),
             }
+        } else {
+            manager.msg_sender.send(IPCRes::Error(
+                "Could not parse or reply to message.".to_string(),
+            ))?;
         }
     }
 }

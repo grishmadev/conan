@@ -1,28 +1,30 @@
 use std::error::Error;
 
+use bincode::{Decode, Encode};
 use chrono::{DateTime, Utc};
 
 use crate::database::DBConnection;
 
+#[derive(Debug, Decode, Encode, Clone, PartialEq, Eq)]
 pub struct Chat {
     pub id: u32,
     pub sender_id: u32,
     pub receiver_id: u32,
     pub data: String,
-    pub time: DateTime<Utc>,
+    pub time: String,
 }
 
 impl Chat {
     /// Used to build Chat Struct with given parameters
     #[must_use]
-    pub fn build(text: String, sender: u32, receiver: u32) -> Self {
-        let time = Utc::now();
+    pub fn build(text: &str, sender: u32, receiver: u32) -> Self {
+        let time = Utc::now().to_string();
         Self {
             // we're not really adding the id, thats done by sql itself
             id: 0,
             sender_id: sender,
             receiver_id: receiver,
-            data: text,
+            data: text.into(),
             time,
         }
     }
@@ -32,6 +34,9 @@ pub trait ChatData {
     /// Lists Chats from Local Database
     /// # Errors
     fn list_all_chat(&self) -> Result<Vec<Chat>, Box<dyn Error>>;
+    /// Lists chat from a specific peer
+    /// # Errors
+    fn list_chat_from(&self, peer_id: u8, chat_amount: u8) -> Result<Vec<Chat>, Box<dyn Error>>;
     /// Inserts Chat to Local Database
     /// # Errors
     fn insert_chat(&self, chat: Chat) -> Result<(), Box<dyn Error>>;
@@ -41,14 +46,15 @@ pub trait ChatData {
 }
 
 impl ChatData for DBConnection {
-    fn list_all_chat(&self) -> Result<Vec<Chat>, Box<dyn std::error::Error>> {
+    fn list_all_chat(&self) -> Result<Vec<Chat>, Box<dyn Error>> {
         let mut result = vec![];
         let mut query = self.connection.prepare("SELECT * FROM chat")?;
         let rows = query.query_map([], |c| {
             let time: String = c.get(4)?;
             let time = DateTime::parse_from_str(&time, "YYYY-MM-DD HH:MM:SS")
                 .unwrap()
-                .to_utc();
+                .to_utc()
+                .to_string();
             Ok(Chat {
                 id: c.get(0)?,
                 sender_id: c.get(1)?,
@@ -57,6 +63,30 @@ impl ChatData for DBConnection {
                 time,
             })
         })?;
+        for r in rows {
+            let r = r?;
+            result.push(r);
+        }
+        Ok(result)
+    }
+
+    fn list_chat_from(&self, peer_id: u8, limit: u8) -> Result<Vec<Chat>, Box<dyn Error>> {
+        let mut stmt = self.connection.prepare("SELECT * FROM chat WHERE (chat.receiver_id = ?1 OR chat.sender_id = ?1) ORDER BY chat.time DESC LIMIT ?2")?;
+        let rows = stmt.query_map((peer_id, limit), |r| {
+            let time: String = r.get(4)?;
+            let time = DateTime::parse_from_str(&time, "YYYY-MM-DD HH:MM:SS")
+                .unwrap()
+                .to_utc()
+                .to_string();
+            Ok(Chat {
+                id: r.get(0)?,
+                sender_id: r.get(1)?,
+                receiver_id: r.get(2)?,
+                data: r.get(3)?,
+                time,
+            })
+        })?;
+        let mut result = vec![];
         for r in rows {
             let r = r?;
             result.push(r);

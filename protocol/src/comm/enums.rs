@@ -22,6 +22,7 @@ pub enum IPCRes {
     ServerStarted,
     Connected(String, u16),
     Text(u8, String),
+    Notification(String),
     Error(String),
     PeerList(Vec<Peer>),
     ChatList { peer_id: u8, chats: Vec<Chat> },

@@ -33,6 +33,9 @@ pub trait PeerData {
     /// Lists Peers from Local Database
     /// # Errors
     fn list_all_peers(&self) -> Result<Vec<Peer>, Box<dyn Error>>;
+    /// Get's name of Peer if exists else None
+    /// # Errors
+    fn get_peer_name(&self, addr: String) -> Result<Option<String>, Box<dyn Error>>;
     /// Inserts peers to Local Database
     /// # Errors
     fn insert_peer(&self, peer: Peer) -> Result<(), Box<dyn Error>>;
@@ -57,6 +60,25 @@ impl PeerData for DBConnection {
             result.push(r);
         }
         Ok(result)
+    }
+
+    fn get_peer_name(&self, addr: String) -> Result<Option<String>, Box<dyn Error>> {
+        let mut stmt = self
+            .connection
+            .prepare("SELECT name FROM peer WHERE address = ?1")?;
+        let result = stmt.query_one([&addr], |r| r.get::<usize, String>(0));
+        let name = match result {
+            Ok(s) => Some(s),
+            Err(e) if e.eq(&rusqlite::Error::QueryReturnedMoreThanOneRow) => {
+                self.connection
+                    .execute("DELETE FROM peer WHERE address = ?1", [&addr])?;
+                None
+            }
+            Err(e) => {
+                return Err(e.into());
+            }
+        };
+        Ok(name)
     }
 
     fn insert_peer(&self, peer: Peer) -> Result<(), Box<dyn Error>> {

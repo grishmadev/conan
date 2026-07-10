@@ -14,16 +14,14 @@ use tor_hsservice::{HsNickname, OnionServiceConfig, RendRequest, RunningOnionSer
 
 use crate::{
     comm::enums::IPCRes,
-    config::ConanConfig,
+    config::parse_config,
     database::DBConnection,
+    database_entities::peer::{Peer, PeerData},
     debug,
-    entities::{
-        database::peer::{Peer, PeerData},
-        server::slave::Slave,
-    },
     extras::generate_name,
     msg::{Msg, PeerStatus},
     operations::dialer_actor,
+    server_entities::slave::Slave,
 };
 
 pub struct Manager {
@@ -41,23 +39,19 @@ pub struct Manager {
     pub response_receiver: broadcast::Receiver<(u8, Msg)>,
     /// `HashMap` for tracking active peers
     pub peers: Arc<Mutex<HashMap<u8, Slave>>>,
-    /// Paths chosen during startup
-    pub config: ConanConfig,
 }
 
 impl Manager {
     /// # Errors
-    pub async fn create(
-        msg_sender: broadcast::Sender<IPCRes>,
-        config: ConanConfig,
-    ) -> Result<Self, Box<dyn Error>> {
+    pub async fn create(msg_sender: broadcast::Sender<IPCRes>) -> Result<Self, Box<dyn Error>> {
+        let config = parse_config()?;
         let mut tor_config_builder = TorClientConfig::builder();
         let stream_timeout_config = tor_config_builder.stream_timeouts();
         // setting timeout to 20 secs bcoz we'd rather not wait 60 secs when its destined to fail
         stream_timeout_config.connect_timeout(Duration::from_secs(20));
         let storage_builder = tor_config_builder.storage();
         let state_path = CfgPath::new(config.arti_key_store.clone());
-        let cache_path = CfgPath::new(config.cache_path.clone());
+        let cache_path = CfgPath::new(config.cache_path);
         storage_builder.cache_dir(cache_path).state_dir(state_path);
         let tor_config = tor_config_builder.build()?;
 
@@ -80,13 +74,13 @@ impl Manager {
             None => return Err("No HsId found.".into()),
         };
         println!("Server Address: {}", hsid.display_unredacted());
-        let conn = DBConnection::build(&config.db_path)?;
+        let conn = DBConnection::build()?;
         conn.execute(&format!(
             "INSERT OR REPLACE INTO peer (id, name, address) VALUES (1, 'Me', '{}')",
             hsid.display_unredacted()
         ))?;
         let (response_sender, response_receiver) = broadcast::channel::<(u8, Msg)>(100);
-        let dbconn = DBConnection::build(&config.db_path)?;
+        let dbconn = DBConnection::build()?;
 
         Ok(Self {
             tor_client,
@@ -97,7 +91,6 @@ impl Manager {
             msg_sender,
             response_receiver,
             response_sender,
-            config,
         })
     }
 
@@ -112,7 +105,6 @@ impl Manager {
         let response_sender = self.response_sender.clone();
         let peers = Arc::clone(&self.peers);
         let service = self.service.clone();
-        let config = self.config.clone();
         tokio::spawn(async move {
             let msg_sender = msg_sender.clone();
             let response_sender = response_sender.clone();
@@ -120,7 +112,6 @@ impl Manager {
             let service = Arc::clone(&service);
             loop {
                 while let Some(rendreq) = stream.next().await {
-                    let config = config.clone();
                     let msg_sender = msg_sender.clone();
                     let response_sender = response_sender.clone();
                     let peers = Arc::clone(&peers);
@@ -133,7 +124,6 @@ impl Manager {
                                     let service = Arc::clone(&service);
                                     let msg_sender = msg_sender.clone();
                                     let response_sender = response_sender.clone();
-                                    let config = config.clone();
                                     match strreq.accept(Connected::new_empty()).await {
                                         Ok(stream) => {
                                             let (reader, writer) = tokio::io::split(stream);
@@ -143,9 +133,6 @@ impl Manager {
                                                 service,
                                                 msg_sender,
                                                 response_sender,
-                                                dbconn: DBConnection::build(&config.db_path)
-                                                    .unwrap(),
-                                                config,
                                                 shared_secret_key: Arc::new(RwLock::new([0u8; 32])),
                                             };
                                             if let Err(e) = conn.connect_as_listener().await {
@@ -186,11 +173,10 @@ impl Manager {
     ) -> Result<PeerStatus, Box<dyn Error>> {
         let tor_client = Arc::clone(&self.tor_client);
         let msg_sender = self.msg_sender.clone();
-        let dbconn = DBConnection::build(&self.config.db_path)?;
+        let db_conn = DBConnection::build()?;
         let response_sender = self.response_sender.clone();
         let peers = Arc::clone(&self.peers);
         let service = Arc::clone(&self.service);
-        let config = self.config.clone();
         tokio::spawn(async move {
             println!("Connecting to peer...");
             let mut stream = None;
@@ -220,7 +206,6 @@ impl Manager {
                 .ok_or("Onion Address Not found.")
                 .unwrap();
             if let Err(e) = dialer_actor(
-                config.arti_key_store.clone(),
                 &mut reader,
                 &mut writer,
                 &mut shared_secret_key,
@@ -242,11 +227,8 @@ impl Manager {
                 reader: Some(reader),
                 writer,
                 service,
-                dbconn: DBConnection::build(&config.db_path).unwrap(),
-                config,
                 msg_sender: msg_sender.clone(),
                 response_sender,
-
                 shared_secret_key: Arc::new(RwLock::new(shared_secret_key)),
             };
             _ = conn.spawn_communication();
@@ -257,14 +239,9 @@ impl Manager {
                 peers.insert(idx, conn);
             }
             println!("Exchange Complete..");
-            let known = dbconn.get_peer_name(peer_addr.0.clone()).unwrap();
-            if known.is_none() {
-                let peer = Peer::build(&generate_name(random_range(3..10)), &peer_addr.0);
-                dbconn.insert_peer(peer).unwrap();
-            }
-            msg_sender
-                .send(IPCRes::Connected(peer_addr.0, peer_addr.1))
-                .unwrap();
+            let peer = Peer::build(&generate_name(random_range(3..10)), &peer_addr.0);
+            db_conn.insert_peer(peer).unwrap();
+            msg_sender.send(IPCRes::Connected(peer_addr.0, 80)).unwrap();
         });
         Ok(PeerStatus::Connected)
     }

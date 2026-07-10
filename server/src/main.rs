@@ -1,17 +1,21 @@
 use conanprotocol::{
     comm::enums::{IPCCmd, IPCRes},
-    entities::database::{chat::ChatData, peer::PeerData},
-    entities::server::{manager::Manager, master::Master},
+    config::parse_config,
+    entities::{
+        database::{chat::ChatData, peer::PeerData},
+        server::{manager::Manager, master::Master},
+    },
     msg::Msg,
 };
 use std::error::Error;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    let config = parse_config()?;
     let (worker_sender, worker_receiver) = std::sync::mpsc::channel::<IPCCmd>();
     let (msg_sender, msg_receiver) = tokio::sync::broadcast::channel::<IPCRes>(100);
     let mut master = Master::build(None, worker_sender, msg_receiver);
-    let mut manager = Manager::create(msg_sender.clone()).await?;
+    let mut manager = Manager::create(msg_sender.clone(), config).await?;
     println!("Starting Manager..");
     manager.init_server()?;
     println!("Manager Started. Establishing Message Routes..");

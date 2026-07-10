@@ -1,5 +1,4 @@
 use crate::{
-    config::parse_config,
     constants::{ARTI_PRIVATE_KEY, ENCRYPTION_INFO},
     msg::Msg,
 };
@@ -153,9 +152,11 @@ pub fn edhverify(
 }
 
 pub async fn listener_actor(
+    arti_key_store: String,
     reader: &mut ReadHalf<DataStream>,
     writer: &mut WriteHalf<DataStream>,
     ssk: &mut Option<[u8; 32]>,
+    assign_remote_hsid: &mut Option<String>,
     local_hsid: HsId,
 ) -> Result<(), Box<dyn Error>> {
     // reading dialer's x25519 public key.
@@ -167,10 +168,9 @@ pub async fn listener_actor(
     let Msg::PublicKey(remote_public_key) = recv_msg else {
         return Err("Did not receive remote public key. aborting.".into());
     };
-    let config = parse_config()?;
     let local_private_key = EphemeralSecret::random_from_rng(OsRng);
     let local_public_key = PublicKey::from(&local_private_key).to_bytes();
-    let signing_key = signing_key(config.arti_key_store).await?;
+    let signing_key = signing_key(arti_key_store).await?;
 
     // creating signature using local ed25519 private key and stacking local and remote
     // ephemeral keys
@@ -216,6 +216,7 @@ pub async fn listener_actor(
     let local_hsid_bytes = local_hsid.as_ref();
     let remote_hsid = HsId::from(claimed_remote_hsid_bytes);
     println!("Peer's Address: {}", remote_hsid.display_unredacted());
+    *assign_remote_hsid = Some(remote_hsid.display_unredacted().to_string());
     if local_hsid_bytes != &claimed_local_hsid_bytes {
         return Err("HsId key mismatch. Dropping connection.".into());
     }
@@ -252,6 +253,7 @@ pub async fn listener_actor(
 /// # Errors
 /// # Panics
 pub async fn dialer_actor<R, W>(
+    arti_key_store: String,
     reader: &mut ReadHalf<R>,
     writer: &mut WriteHalf<W>,
     ssk: &mut Option<[u8; 32]>,
@@ -293,8 +295,7 @@ where
     let Some(shared_secret_key) = *ssk else {
         return Err("Couldn't get Shared Secret Key.".into());
     };
-    let config = parse_config()?.arti_key_store;
-    let signing_key = signing_key(config).await?;
+    let signing_key = signing_key(arti_key_store).await?;
 
     // preparing message containing signed combined key of remote and local x25519 public key
     // and remote and local ed25519 public key on an encrypted channel using shared secret

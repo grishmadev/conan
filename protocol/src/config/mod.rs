@@ -32,7 +32,7 @@ pub struct ConanArgs {
     pub db_path: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ConanConfig {
     pub socket_path: String,
     pub arti_key_store: String,

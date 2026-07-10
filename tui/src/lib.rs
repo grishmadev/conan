@@ -129,6 +129,9 @@ impl App {
                         self.active_screen = Screen::None;
                     }
                 }
+                IPCRes::Notification(text) => {
+                    self.notification = Some((text, Instant::now()));
+                }
                 IPCRes::PeerList(peers) => self.contacts = peers,
                 _ => {}
             }

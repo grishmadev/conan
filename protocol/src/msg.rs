@@ -1,6 +1,8 @@
 use bincode::config;
 use serde::{Deserialize, Serialize};
 
+use crate::comm::enums::IPCRes;
+
 pub enum PeerVerified {
     Verified,
     Invalid,
@@ -17,6 +19,9 @@ pub enum PeerStatus {
 #[non_exhaustive]
 pub enum Internal {
     HsId,
+    Msg(Msg),
+    IPCRes(IPCRes),
+    RemovePeer(u8),
 }
 
 #[non_exhaustive]

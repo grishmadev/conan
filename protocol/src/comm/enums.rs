@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use bincode::{Decode, Encode, config};
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::entities::database::{chat::Chat, peer::Peer};
 
@@ -16,7 +16,7 @@ pub enum IPCCmd {
     Tick,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum IPCRes {
     ServerStarted,

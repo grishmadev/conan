@@ -1,6 +1,7 @@
 use arti_client::{BootstrapBehavior, TorClient, TorClientConfig, config::CfgPath};
 use futures::{StreamExt, stream::BoxStream};
 use rand::random_range;
+use rusqlite::Connection;
 use safelog::DisplayRedacted;
 use std::{
     collections::HashMap,
@@ -22,23 +23,23 @@ use crate::{
         server::slave::Slave,
     },
     extras::generate_name,
-    msg::{Msg, PeerStatus},
+    msg::{Internal, Msg, PeerStatus},
     operations::dialer_actor,
 };
 
 pub struct Manager {
     tor_client: Arc<TorClient<tor_rtcompat::PreferredRuntime>>,
     /// NOTE: Only for assigning to `Slaves`, not to be used by manager itself
-    response_sender: broadcast::Sender<(u8, Msg)>,
+    response_sender: broadcast::Sender<(u8, Internal)>,
 
     stream: Option<BoxStream<'static, RendRequest>>,
     service: Arc<RunningOnionService>,
-    pub dbconn: DBConnection,
+    pub dbconn: Connection,
 
     /// Channel for sending message to Master
     pub msg_sender: broadcast::Sender<IPCRes>,
     /// Used for receiving messages from Slaves and transferring them to Master
-    pub response_receiver: broadcast::Receiver<(u8, Msg)>,
+    pub response_receiver: broadcast::Receiver<(u8, Internal)>,
     /// `HashMap` for tracking active peers
     pub peers: Arc<Mutex<HashMap<u8, Slave>>>,
     /// Paths chosen during startup
@@ -85,15 +86,14 @@ impl Manager {
             "INSERT OR REPLACE INTO peer (id, name, address) VALUES (1, 'Me', '{}')",
             hsid.display_unredacted()
         ))?;
-        let (response_sender, response_receiver) = broadcast::channel::<(u8, Msg)>(100);
-        let dbconn = DBConnection::build(&config.db_path)?;
+        let (response_sender, response_receiver) = broadcast::channel::<(u8, Internal)>(100);
 
         Ok(Self {
             tor_client,
             peers: Arc::new(Mutex::new(HashMap::new())),
             stream: Some(request_stream.boxed()),
             service,
-            dbconn,
+            dbconn: Connection::open(&config.db_path)?,
             msg_sender,
             response_receiver,
             response_sender,
@@ -138,25 +138,26 @@ impl Manager {
                                         Ok(stream) => {
                                             let (reader, writer) = tokio::io::split(stream);
                                             let mut conn = Slave {
+                                                id: 0,
                                                 reader: Some(reader),
                                                 writer,
                                                 service,
                                                 msg_sender,
                                                 response_sender,
-                                                dbconn: DBConnection::build(&config.db_path)
-                                                    .unwrap(),
+                                                dbconn: Connection::open(&config.db_path).unwrap(),
                                                 config,
                                                 shared_secret_key: Arc::new(RwLock::new([0u8; 32])),
                                             };
-                                            if let Err(e) = conn.connect_as_listener().await {
-                                                eprintln!("Cannot connect as listener.\n{e}");
-                                                continue;
-                                            }
+                                            let peer_idx = match conn.connect_as_listener().await {
+                                                Ok(s) => s,
+                                                Err(e) => {
+                                                    eprintln!("Cannot connect as listener.\n{e}");
+                                                    continue;
+                                                }
+                                            };
                                             if conn.spawn_communication().is_ok() {
                                                 let mut guard = peers.lock().unwrap();
-                                                #[allow(clippy::cast_possible_truncation)]
-                                                let idx = guard.len() as u8;
-                                                guard.insert(idx, conn);
+                                                guard.insert(peer_idx, conn);
                                             }
                                         }
                                         Err(e) => {
@@ -186,9 +187,24 @@ impl Manager {
     ) -> Result<PeerStatus, Box<dyn Error>> {
         let tor_client = Arc::clone(&self.tor_client);
         let msg_sender = self.msg_sender.clone();
-        let dbconn = DBConnection::build(&self.config.db_path)?;
+        let mut dbconn = Connection::open(&self.config.db_path)?;
         let response_sender = self.response_sender.clone();
         let peers = Arc::clone(&self.peers);
+        // checking if peer is already in our connected
+        {
+            let peer = dbconn.get_peer(&peer_addr.0)?;
+            if let Some(peer) = peer {
+                #[allow(clippy::cast_possible_truncation)]
+                if peers.lock().unwrap().contains_key(&(peer.id as u8)) {
+                    msg_sender.send(IPCRes::Connected(peer_addr.0, peer_addr.1))?;
+                    msg_sender.send(IPCRes::Notification(format!(
+                        "Already connected to {}",
+                        peer.name.unwrap_or("Peer".to_string())
+                    )))?;
+                    return Ok(PeerStatus::Connected);
+                }
+            }
+        }
         let service = Arc::clone(&self.service);
         let config = self.config.clone();
         tokio::spawn(async move {
@@ -237,31 +253,39 @@ impl Manager {
                 eprintln!("Could not parse Shared Secret Key. Aborting.");
                 return;
             };
+            let known = dbconn.get_peer(&peer_addr.0).unwrap();
+            let mut idx = None;
+            let trans = dbconn.transaction().unwrap();
+            if known.is_none() {
+                let peer = Peer::build(&generate_name(random_range(3..10)), &peer_addr.0);
+                let peer = trans.insert_peer(peer).unwrap();
+                idx = Some(peer.id as u8);
+            }
+            let Some(idx) = idx else {
+                eprintln!("Could not add peer to database.");
+                return;
+            };
 
             let mut conn = Slave {
+                id: idx,
                 reader: Some(reader),
                 writer,
                 service,
-                dbconn: DBConnection::build(&config.db_path).unwrap(),
+                dbconn: Connection::open(&config.db_path).unwrap(),
                 config,
                 msg_sender: msg_sender.clone(),
                 response_sender,
-
                 shared_secret_key: Arc::new(RwLock::new(shared_secret_key)),
             };
-            _ = conn.spawn_communication();
-            {
+            if conn.spawn_communication().is_ok() {
                 let mut peers = peers.lock().unwrap();
                 #[allow(clippy::cast_possible_truncation)]
-                let idx = peers.len() as u8 + 1;
                 peers.insert(idx, conn);
+                trans.commit().unwrap();
+            } else {
+                _ = trans.rollback();
             }
             println!("Exchange Complete..");
-            let known = dbconn.get_peer_name(peer_addr.0.clone()).unwrap();
-            if known.is_none() {
-                let peer = Peer::build(&generate_name(random_range(3..10)), &peer_addr.0);
-                dbconn.insert_peer(peer).unwrap();
-            }
             msg_sender
                 .send(IPCRes::Connected(peer_addr.0, peer_addr.1))
                 .unwrap();
@@ -274,15 +298,30 @@ impl Manager {
     pub fn setup_slave_communication(&mut self) -> Result<(), Box<dyn Error>> {
         let mut rec = self.response_receiver.resubscribe();
         let sen = self.msg_sender.clone();
+        let peers = Arc::clone(&self.peers);
         tokio::spawn(async move {
-            while let Ok(msg) = rec.recv().await {
-                let final_msg = match msg.1 {
-                    Msg::Text(text) => IPCRes::Text(msg.0, text),
-                    _ => {
-                        continue;
+            while let Ok(internal) = rec.recv().await {
+                let mut res = None;
+                match internal.1 {
+                    Internal::Msg(msg) => match msg {
+                        Msg::Text(text) => {
+                            res = Some(IPCRes::Text(internal.0, text));
+                        }
+                        Msg::Verified => {
+                            res = Some(IPCRes::Notification("Verified.".into()));
+                        }
+                        _ => continue,
+                    },
+                    Internal::RemovePeer(idx) => {
+                        if let Ok(mut guard) = peers.lock() {
+                            guard.remove(&idx);
+                        }
                     }
-                };
-                _ = sen.send(final_msg);
+                    _ => continue,
+                }
+                if let Some(msg) = res {
+                    _ = sen.send(msg);
+                }
             }
         });
         Ok(())

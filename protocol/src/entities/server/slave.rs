@@ -1,5 +1,6 @@
 use arti_client::DataStream;
 use rand::random_range;
+use rusqlite::Connection;
 use std::{
     error::Error,
     sync::{Arc, RwLock},
@@ -16,19 +17,20 @@ use crate::{
     database::DBConnection,
     entities::database::peer::{Peer, PeerData},
     extras::generate_name,
-    msg::Msg,
+    msg::{Internal, Msg},
     operations::{decrypt, encrypt, listener_actor},
 };
 pub struct Slave {
+    pub id: u8,
     pub reader: Option<ReadHalf<DataStream>>,
     pub writer: WriteHalf<DataStream>,
-    pub response_sender: broadcast::Sender<(u8, Msg)>,
+    pub response_sender: broadcast::Sender<(u8, Internal)>,
     /// Shared secret key after diffie helmann exchange
     pub shared_secret_key: Arc<RwLock<[u8; 32]>>,
     pub msg_sender: broadcast::Sender<IPCRes>,
     pub service: Arc<RunningOnionService>,
     pub config: ConanConfig,
-    pub dbconn: DBConnection,
+    pub dbconn: Connection,
 }
 
 impl Slave {
@@ -44,6 +46,7 @@ impl Slave {
         };
         let ssk = Arc::clone(&self.shared_secret_key);
         let response_sender = self.response_sender.clone();
+        let id = self.id;
         tokio::spawn(async move {
             let mut buf = [0u8; 4096];
             let mut threshold = 5;
@@ -56,8 +59,7 @@ impl Slave {
                             eprintln!("Found Corrupted message: {:?}", &buf[..n]);
                             continue;
                         };
-                        let msg = Msg::from_bytes(&decrypted);
-                        let msg = (0, msg);
+                        let msg = (0, Internal::Msg(Msg::from_bytes(&decrypted)));
                         _ = response_sender.send(msg);
                         threshold = 5;
                     }
@@ -66,7 +68,11 @@ impl Slave {
                         threshold -= 1;
                     }
                 }
-                eprintln!("Retrying...");
+                if threshold != 0 {
+                    eprintln!("Retrying...");
+                } else {
+                    response_sender.send((id, Internal::RemovePeer(id)));
+                }
             }
         });
         Ok(())
@@ -75,7 +81,7 @@ impl Slave {
     /// Connects to Peer as listener (Allowing Connections)
     /// # Panics
     /// # Errors
-    pub async fn connect_as_listener(&mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn connect_as_listener(&mut self) -> Result<u8, Box<dyn Error>> {
         let Some(reader) = self.reader.as_mut() else {
             return Err("No reader found.".into());
         };
@@ -101,16 +107,25 @@ impl Slave {
         let Some(remote_hsid) = remote_onion_key else {
             return Err("No Remote HsId key assigned. Aborting.".into());
         };
-        let known = self.dbconn.get_peer_name(remote_hsid.clone())?;
+        let known = self.dbconn.get_peer(&remote_hsid)?;
+        let mut idx = 0;
         if known.is_none() {
             let name = generate_name(random_range(4..10));
-            self.dbconn.insert_peer(Peer::build(&name, &remote_hsid))?;
+            let peer = self.dbconn.insert_peer(Peer::build(&name, &remote_hsid))?;
+            self.id = peer.id as u8;
+            idx = peer.id as u8;
         }
-        let name = known.unwrap_or("A New Peer".into());
+        let name = if let Some(peer) = known
+            && let Some(name) = peer.name
+        {
+            name
+        } else {
+            "A New Peer".into()
+        };
         self.msg_sender.send(IPCRes::Notification(format!(
             "{name} just connected to you."
         )))?;
-        Ok(())
+        Ok(idx)
     }
 
     /// Encrypts message before writing to writer

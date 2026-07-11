@@ -2,10 +2,10 @@ use std::error::Error;
 
 use bincode::{Decode, Encode};
 use chrono::{DateTime, Utc};
+use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 
-use crate::database::DBConnection;
-
-#[derive(Debug, Decode, Encode, Clone, PartialEq, Eq)]
+#[derive(Debug, Decode, Encode, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Chat {
     pub id: u32,
     pub sender_id: u32,
@@ -45,10 +45,10 @@ pub trait ChatData {
     fn delete_chat(&self, idx: u32) -> Result<(), Box<dyn Error>>;
 }
 
-impl ChatData for DBConnection {
+impl ChatData for Connection {
     fn list_all_chat(&self) -> Result<Vec<Chat>, Box<dyn Error>> {
         let mut result = vec![];
-        let mut query = self.connection.prepare("SELECT * FROM chat")?;
+        let mut query = self.prepare("SELECT * FROM chat")?;
         let rows = query.query_map([], |c| {
             let time: String = c.get(4)?;
             let time = DateTime::parse_from_str(&time, "YYYY-MM-DD HH:MM:SS")
@@ -71,7 +71,7 @@ impl ChatData for DBConnection {
     }
 
     fn list_chat_from(&self, peer_id: u8, limit: u8) -> Result<Vec<Chat>, Box<dyn Error>> {
-        let mut stmt = self.connection.prepare("SELECT * FROM chat WHERE (chat.receiver_id = ?1 OR chat.sender_id = ?1) ORDER BY chat.time DESC LIMIT ?2")?;
+        let mut stmt = self.prepare("SELECT * FROM chat WHERE (chat.receiver_id = ?1 OR chat.sender_id = ?1) ORDER BY chat.time DESC LIMIT ?2")?;
         let rows = stmt.query_map((peer_id, limit), |r| {
             let time: String = r.get(4)?;
             let time = DateTime::parse_from_str(&time, "YYYY-MM-DD HH:MM:SS")
@@ -95,9 +95,8 @@ impl ChatData for DBConnection {
     }
 
     fn insert_chat(&self, chat: Chat) -> Result<(), Box<dyn Error>> {
-        let mut stmt = self
-            .connection
-            .prepare("INSERT INTO chat (receiver_id, sender_id, data) VALUES (?1, ?2, ?3)")?;
+        let mut stmt =
+            self.prepare("INSERT INTO chat (receiver_id, sender_id, data) VALUES (?1, ?2, ?3)")?;
         match stmt.execute((chat.receiver_id, chat.sender_id, chat.data)) {
             Ok(s) => {
                 if s == 0 {
@@ -110,7 +109,7 @@ impl ChatData for DBConnection {
     }
 
     fn delete_chat(&self, id: u32) -> Result<(), Box<dyn Error>> {
-        let mut stmt = self.connection.prepare("DELETE FROM chat WHERE id = ?1")?;
+        let mut stmt = self.prepare("DELETE FROM chat WHERE id = ?1")?;
         match stmt.execute([id]) {
             Ok(s) => {
                 if s == 0 {

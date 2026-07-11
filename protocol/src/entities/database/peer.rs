@@ -1,10 +1,10 @@
 use std::error::Error;
 
 use bincode::{Decode, Encode};
+use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 
-use crate::database::DBConnection;
-
-#[derive(Debug, Decode, Encode, Clone, PartialEq, Eq)]
+#[derive(Debug, Decode, Encode, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Peer {
     pub id: u32,
     pub name: Option<String>,
@@ -35,19 +35,19 @@ pub trait PeerData {
     fn list_all_peers(&self) -> Result<Vec<Peer>, Box<dyn Error>>;
     /// Get's name of Peer if exists else None
     /// # Errors
-    fn get_peer_name(&self, addr: String) -> Result<Option<String>, Box<dyn Error>>;
+    fn get_peer(&self, addr: &str) -> Result<Option<Peer>, Box<dyn Error>>;
     /// Inserts peers to Local Database
     /// # Errors
-    fn insert_peer(&self, peer: Peer) -> Result<(), Box<dyn Error>>;
+    fn insert_peer(&self, peer: Peer) -> Result<Peer, Box<dyn Error>>;
     /// Deletes from Local Database based on peer id
     /// # Errors
     fn delete_peer(&self, id: u32) -> Result<(), Box<dyn Error>>;
 }
 
-impl PeerData for DBConnection {
+impl PeerData for Connection {
     fn list_all_peers(&self) -> Result<Vec<Peer>, Box<dyn Error>> {
         let mut result = vec![];
-        let mut query = self.connection.prepare("SELECT * FROM peer")?;
+        let mut query = self.prepare("SELECT * FROM peer")?;
         let rows = query.query_map([], |p| {
             Ok(Peer {
                 id: p.get(0)?,
@@ -62,42 +62,51 @@ impl PeerData for DBConnection {
         Ok(result)
     }
 
-    fn get_peer_name(&self, addr: String) -> Result<Option<String>, Box<dyn Error>> {
-        let mut stmt = self
-            .connection
-            .prepare("SELECT name FROM peer WHERE address = ?1")?;
-        let result = stmt.query_one([&addr], |r| r.get::<usize, String>(0));
-        let name = match result {
+    fn get_peer(&self, addr: &str) -> Result<Option<Peer>, Box<dyn Error>> {
+        let mut stmt = self.prepare("SELECT * FROM peer WHERE address = ?1")?;
+        let result = stmt.query_row([&addr], |r| {
+            Ok(Peer {
+                id: r.get(0)?,
+                name: r.get(1).ok(),
+                address: r.get(2)?,
+            })
+        });
+        let peer = match result {
             Ok(s) => Some(s),
-            Err(e) if e.eq(&rusqlite::Error::QueryReturnedMoreThanOneRow) => {
-                self.connection
-                    .execute("DELETE FROM peer WHERE address = ?1", [&addr])?;
+            Err(e) => {
+                eprintln!("Could not get peer: {e}");
+                // possible that multiple rows are present.
+                self.execute("DELETE FROM peer WHERE address = ?1", [&addr])?;
                 None
             }
-            Err(e) => {
-                return Err(e.into());
-            }
         };
-        Ok(name)
+        Ok(peer)
     }
 
-    fn insert_peer(&self, peer: Peer) -> Result<(), Box<dyn Error>> {
-        let mut stmt = self
-            .connection
-            .prepare("INSERT INTO peer (name, address) VALUES (?1, ?2)")?;
-        match stmt.execute((peer.name, peer.address)) {
+    fn insert_peer(&self, peer: Peer) -> Result<Peer, Box<dyn Error>> {
+        let mut stmt = self.prepare("INSERT INTO peer (name, address) VALUES (?1, ?2)")?;
+        match stmt.execute((&peer.name, &peer.address)) {
             Ok(s) => {
                 if s == 0 {
                     return Err("Nothing was inserted.".into());
                 }
-                Ok(())
+                let stmt = self
+                    .prepare("SELECT * FROM peer WHERE name = ?1 AND address = ?2")?
+                    .query_one((&peer.name, &peer.address), |r| {
+                        Ok(Peer {
+                            id: r.get(0)?,
+                            name: r.get(1).ok(),
+                            address: r.get(2)?,
+                        })
+                    });
+                Ok(stmt?)
             }
             Err(e) => Err(e.into()),
         }
     }
 
     fn delete_peer(&self, id: u32) -> Result<(), Box<dyn Error>> {
-        let mut stmt = self.connection.prepare("DELETE FROM peer WHERE id = ?1")?;
+        let mut stmt = self.prepare("DELETE FROM peer WHERE id = ?1")?;
         match stmt.execute([id]) {
             Ok(s) => {
                 if s == 0 {

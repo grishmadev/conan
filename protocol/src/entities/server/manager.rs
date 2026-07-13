@@ -14,14 +14,14 @@ use tor_cell::relaycell::msg::Connected;
 use tor_hsservice::{HsNickname, OnionServiceConfig, RendRequest, RunningOnionService};
 
 use crate::{
-    comm::enums::IPCRes,
+    comm::{enums::IPCRes, notification::ConanNotif},
     config::ConanConfig,
     database::DBConnection,
     debug,
     entities::{
         database::{
             chat::{Chat, ChatData},
-            peer::{self, Peer, PeerData},
+            peer::{Peer, PeerData},
         },
         server::slave::Slave,
     },
@@ -74,10 +74,18 @@ impl Manager {
 
         let nickname = HsNickname::new("conan-daemon".to_string())?;
         let svc_config = OnionServiceConfig::builder().nickname(nickname).build()?;
-        let Ok(Some((service, request_stream))) = tor_client.launch_onion_service(svc_config)
-        else {
-            return Err("Could not launch onion service...".into());
-        };
+        let service;
+        let request_stream;
+        match tor_client.launch_onion_service(svc_config) {
+            Ok(Some((tservice, trequest_stream))) => {
+                service = tservice;
+                request_stream = trequest_stream;
+            }
+            Err(e) => return Err(format!("Error while launching tor server.\n{e}").into()),
+            _ => {
+                return Err("Could not launch onion service...".into());
+            }
+        }
 
         let hsid: tor_hsservice::HsId = match service.onion_address() {
             Some(s) => s,
@@ -201,7 +209,7 @@ impl Manager {
         if let Some(hsid) = self.service.onion_address()
             && peer_addr.0 == hsid.display_unredacted().to_string()
         {
-            msg_sender.send(IPCRes::Notification("Cannot connect to Self.".to_string()))?;
+            msg_sender.send(IPCRes::Error("Cannot connect to Self.".to_string()))?;
             return Ok(PeerStatus::NotFound);
         }
         // checking if peer is already in our connection
@@ -236,7 +244,7 @@ impl Manager {
                 }
                 if i == 5 {
                     msg_sender
-                        .send(IPCRes::Notification("Failed to Connect.".to_string()))
+                        .send(IPCRes::Error("Failed to Connect.".to_string()))
                         .unwrap();
                 } else {
                     msg_sender
@@ -281,10 +289,11 @@ impl Manager {
             };
             let known = dbconn.get_peer_from_addr(&peer_addr.0).unwrap();
             let trans = dbconn.transaction().unwrap();
+            let name = generate_name(random_range(3..10));
             let idx = if let Some(known_peer) = known {
                 known_peer.id
             } else {
-                let peer = Peer::build(&generate_name(random_range(3..10)), &peer_addr.0);
+                let peer = Peer::build(&name, &peer_addr.0);
                 let peer = trans.insert_peer(peer).unwrap();
                 peer.id
             };
@@ -327,6 +336,7 @@ impl Manager {
         tokio::spawn(async move {
             while let Ok(internal) = rec.recv().await {
                 let mut res = None;
+                println!("Got task: {internal:#?}");
                 match internal.1 {
                     Internal::Msg(msg) => match msg {
                         Msg::Text(text) => {

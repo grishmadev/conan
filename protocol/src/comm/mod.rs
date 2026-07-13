@@ -1,4 +1,5 @@
 pub mod enums;
+pub mod notification;
 use bincode::config;
 use std::{error::Error, io::Cursor};
 use tokio::{

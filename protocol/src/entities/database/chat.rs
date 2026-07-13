@@ -74,10 +74,11 @@ impl ChatData for Connection {
         let mut stmt = self.prepare("SELECT * FROM chat WHERE (chat.receiver_id = ?1 OR chat.sender_id = ?1) ORDER BY chat.time DESC LIMIT ?2")?;
         let rows = stmt.query_map((peer_id, limit), |r| {
             let time: String = r.get(4)?;
-            let time = DateTime::parse_from_str(&time, "YYYY-MM-DD HH:MM:SS")
-                .unwrap()
-                .to_utc()
-                .to_string();
+            // println!("time: {time:?}");
+            // let time = DateTime::parse_from_str(&time, "%Y-%m-%d %H:%M:%S")
+            //     .unwrap()
+            //     .to_utc()
+            //     .to_string();
             Ok(Chat {
                 id: r.get(0)?,
                 sender_id: r.get(1)?,

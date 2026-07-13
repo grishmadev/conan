@@ -52,9 +52,9 @@ impl Slave {
                 match recv(&mut reader, Arc::clone(&ssk)).await {
                     Ok(data) => {
                         let msg = Msg::from_bytes(&data);
-                        println!("msg: {:?}", msg);
-                        let msg = (0, Internal::Msg(msg));
-                        _ = response_sender.send(msg);
+                        println!("msg: {msg:?}");
+                        let msg = (id, Internal::Msg(msg));
+                        _ = response_sender.send(msg.clone());
                         threshold = 5;
                         continue;
                     }
@@ -104,22 +104,19 @@ impl Slave {
         let Some(remote_hsid) = remote_onion_key else {
             return Err("No Remote HsId key assigned. Aborting.".into());
         };
-        let known = self.dbconn.get_peer_from_addr(&remote_hsid)?;
-        let mut idx = 0;
-        if known.is_none() {
-            let name = generate_name(random_range(4..10));
-            let peer = self.dbconn.insert_peer(Peer::build(&name, &remote_hsid))?;
-            self.id = peer.id as u8;
-            idx = peer.id as u8;
-        }
-        let name = if let Some(peer) = known {
-            peer.name
+        let peer = if let Some(peer) = self.dbconn.get_peer_from_addr(&remote_hsid)? {
+            peer
         } else {
-            "A New Peer".into()
+            let name = generate_name(random_range(4..10));
+            self.dbconn.insert_peer(Peer::build(&name, &remote_hsid))?
         };
+        let name = peer.name;
+        #[allow(clippy::cast_possible_truncation)]
+        let id = peer.id as u8;
+        self.id = id;
         self.msg_sender.send(IPCRes::Notification(format!(
             "{name} just connected to you."
         )))?;
-        Ok(idx)
+        Ok(id)
     }
 }

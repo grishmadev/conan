@@ -342,10 +342,14 @@ impl Manager {
                         Msg::Text(text) => {
                             let chat = Chat::build(&text, internal.0 as u32, 1);
                             dbconn.insert_chat(chat).unwrap();
-                            res = Some(IPCRes::Text(internal.0, text));
+                            res = Some(IPCRes::Text(internal.0, text.clone()));
+                            if let Ok(Some(target)) = dbconn.get_peer_from_id(internal.0 as u32) {
+                                _ = ConanNotif::Text(target.name, text).notify();
+                            }
                         }
                         Msg::Verified => {
                             res = Some(IPCRes::Notification("Verified.".into()));
+                            _ = ConanNotif::Sys("Peer Verified".into()).notify().await;
                         }
                         _ => continue,
                     },

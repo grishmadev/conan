@@ -33,9 +33,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 IPCCmd::Connect(addr, port) => {
                     for _ in 0..5 {
                         match manager.connect_as_dialer((addr.clone(), port)) {
-                            Ok(_) => {
-                                break;
-                            }
+                            Ok(_) => break,
                             Err(e) => eprintln!("Cannot connect as Dialer:\n{e}"),
                         }
                     }
@@ -44,26 +42,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     println!("msg to send: {idx}, {text}");
                     let peers = Arc::clone(&manager.peers);
                     let mut peers = peers.lock().unwrap();
-                    let target = if let Some(target) = peers.get_mut(&idx) {
-                        target
-                    } else {
-                        let Some(peer) = manager.dbconn.get_peer_from_id(idx as u32)? else {
-                            eprintln!("Could not find peer.");
-                            continue;
-                        };
-                        for _ in 0..5 {
-                            match manager.connect_as_dialer((peer.address.clone(), 80)) {
-                                Ok(_) => {
-                                    break;
-                                }
-                                Err(e) => eprintln!("Cannot connect as Dialer:\n{e}"),
-                            }
-                        }
-                        let Some(target) = peers.get_mut(&idx) else {
-                            eprintln!("Could not find peer.");
-                            continue;
-                        };
-                        target
+                    let Some(target) = peers.get_mut(&idx) else {
+                        println!("Cannot find target peer.");
+                        continue;
                     };
                     let encoded = Msg::Text(text).to_vec();
                     send(

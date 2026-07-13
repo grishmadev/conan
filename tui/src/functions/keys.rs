@@ -1,7 +1,7 @@
-use std::{iter::Cycle, time::Duration};
+use std::time::Duration;
 
-use conanprotocol::{comm::enums::IPCCmd, msg::Mode};
-use crossterm::event::{self, Event, KeyCode, KeyModifiers};
+use conanprotocol::{comm::enums::IPCCmd, entities::database::chat::Chat, msg::Mode};
+use crossterm::event::{self, Event, KeyCode};
 
 use crate::{
     App,
@@ -10,11 +10,14 @@ use crate::{
 };
 
 pub trait Keys {
-    fn manage_keys(&mut self) -> impl Future<Output = std::io::Result<()>>;
+    fn manage_keys(
+        &mut self,
+        last_opened_chat: &mut Option<usize>,
+    ) -> impl Future<Output = std::io::Result<()>>;
 }
 
 impl Keys for App {
-    async fn manage_keys(&mut self) -> std::io::Result<()> {
+    async fn manage_keys(&mut self, last_opened_chat: &mut Option<usize>) -> std::io::Result<()> {
         if event::poll(Duration::from_millis(100))?
             && let Event::Key(key) = event::read()?
         {
@@ -36,7 +39,7 @@ impl Keys for App {
                         }
                     }
                     KeyCode::Char('i') => {
-                        if self.mode == Mode::Normal {
+                        if self.mode == Mode::Normal && self.tab == Tab::Chat {
                             self.mode = Mode::Insert { cursor_pos: 0 };
                         }
                     }
@@ -48,6 +51,19 @@ impl Keys for App {
                                 self.contact_idx.select_first();
                             } else {
                                 self.contact_idx.select_next();
+                            }
+                            let cur_idx = self.contact_idx.selected();
+                            if *last_opened_chat != cur_idx {
+                                if let Some(cur_idx) = cur_idx {
+                                    let peer = &self.contacts[cur_idx];
+                                    self.send(IPCCmd::ChatList {
+                                        peer_id: peer.id as u8,
+                                        msg_amount: 50,
+                                    })
+                                    .await?;
+                                } else {
+                                    self.chats.clear();
+                                }
                             }
                         }
                     }
@@ -116,7 +132,17 @@ impl Keys for App {
                                     #[allow(clippy::cast_possible_truncation)]
                                     self.send(IPCCmd::Text(id as u8, self.chat_buf.trim().into()))
                                         .await?;
+                                    let Some(selected) = self.contact_idx.selected() else {
+                                        println!("No chat selected.");
+                                        return Ok(());
+                                    };
+                                    let Some(current_peer) = self.contacts.get(selected) else {
+                                        println!("Peer not found.");
+                                        return Ok(());
+                                    };
+                                    let chat = Chat::build(&self.chat_buf, 1, current_peer.id);
                                     self.chat_buf = String::new();
+                                    self.chats.push(chat);
                                 }
                                 Mode::Insert { ref mut cursor_pos } => {
                                     self.chat_buf.insert(*cursor_pos, '\n');

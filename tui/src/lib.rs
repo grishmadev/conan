@@ -96,6 +96,7 @@ impl App {
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
         });
+        let mut last_opened_chat: Option<usize> = None;
         while self.running {
             terminal.draw(|f| {
                 self.set_layout(f, userid);
@@ -109,7 +110,7 @@ impl App {
                     _ => {}
                 }
             }
-            self.manage_keys().await?;
+            self.manage_keys(&mut last_opened_chat).await?;
             self.manage_ipc()?;
         }
         Ok(())
@@ -128,8 +129,7 @@ impl App {
                 IPCRes::Connected(_, _) => {
                     if let Screen::LoadingScreen { .. } = self.active_screen {
                         self.active_screen = Screen::None;
-                        self.notification =
-                            Some(("Connected to Peer.".to_string(), Instant::now()));
+                        self.notification = Some(("Connected.".to_string(), Instant::now()));
                     }
                 }
                 IPCRes::Error(text) => {
@@ -139,10 +139,20 @@ impl App {
                     }
                 }
                 IPCRes::Notification(text) => {
-                    self.notification = Some((text, Instant::now()));
+                    self.notification = Some((text.clone(), Instant::now()));
                 }
                 IPCRes::PeerList(peers) => {
                     self.contacts = peers;
+                }
+                IPCRes::Text(idx, text) => {
+                    let Some(cur_cont) = self.current_contact()? else {
+                        return Ok(());
+                    };
+                    let idx = u32::from(idx);
+                    if cur_cont.id.eq(&idx) {
+                        let new_chat = Chat::build(&text, idx, 1);
+                        self.chats.push(new_chat);
+                    }
                 }
                 _ => {}
             }
@@ -237,5 +247,15 @@ impl App {
         self.stream.read_exact(cursor.get_mut()).await?;
         let (res, _) = bincode::decode_from_slice(cursor.get_ref(), config::standard())?;
         Ok(res)
+    }
+
+    fn current_contact(&self) -> Result<Option<&Peer>, Box<dyn Error>> {
+        let Some(cur_idx) = self.contact_idx.selected() else {
+            return Ok(None);
+        };
+        let Some(cur_cont) = self.contacts.get(cur_idx) else {
+            return Ok(None);
+        };
+        Ok(Some(cur_cont))
     }
 }

@@ -14,7 +14,13 @@ use hkdf::Hkdf;
 use safelog::DisplayRedacted;
 use sha2::Sha256;
 use ssh_encoding::Decode;
-use std::{error::Error, fs::File, io::Read, str::FromStr};
+use std::{
+    error::Error,
+    fs::File,
+    io::Read,
+    str::FromStr,
+    sync::{Arc, RwLock},
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tor_hsservice::HsId;
 use tor_llcrypto::pk::ed25519::ExpandedKeypair;
@@ -332,4 +338,47 @@ where
         return Err("Didn't receive Approval, Aborting.".into());
     };
     Ok(())
+}
+
+/// Encrypts message before writing to writer
+pub async fn send<T>(
+    writer: &mut WriteHalf<T>,
+    msg: Vec<u8>,
+    ssk: Arc<RwLock<[u8; 32]>>,
+) -> Result<(), Box<dyn Error>>
+where
+    T: AsyncReadExt + AsyncWriteExt,
+{
+    let encrypted;
+    {
+        let ssk = ssk.read().unwrap();
+        encrypted = encrypt(&ssk, &msg)?;
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    writer.write_u16(encrypted.len() as u16).await?;
+    writer.write_all(&encrypted).await?;
+    writer.flush().await?;
+    Ok(())
+}
+
+/// Decrypts message before returning
+pub async fn recv<T>(
+    reader: &mut ReadHalf<T>,
+    ssk: Arc<RwLock<[u8; 32]>>,
+) -> Result<Vec<u8>, Box<dyn Error>>
+where
+    T: AsyncReadExt + AsyncWriteExt,
+{
+    let size = reader.read_u16().await?;
+    let mut buf = vec![0u8; size as usize];
+    reader.read_exact(&mut buf).await?;
+
+    let ssk = ssk.read().unwrap();
+    let decrypted = match decrypt(&ssk, &buf) {
+        Ok(s) => s,
+        Err(e) => {
+            return Err(format!("Corrupted message.\n{e}").into());
+        }
+    };
+    Ok(decrypted)
 }

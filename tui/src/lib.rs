@@ -10,14 +10,15 @@ use std::{
 use bincode::config;
 use conanprotocol::{
     comm::enums::{IPCCmd, IPCRes, encode},
-    entities::database::peer::Peer,
+    entities::database::{chat::Chat, peer::Peer},
+    msg::Mode,
 };
 use ratatui::{
     Frame, Terminal,
     layout::{Constraint, Direction, HorizontalAlignment, Layout},
     prelude::CrosstermBackend,
     text::Line,
-    widgets::{Block, Borders, Padding},
+    widgets::{Block, Borders, ListState, Padding},
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -37,12 +38,16 @@ use crate::{
 
 pub struct App {
     pub tab: Tab,
+    pub mode: Mode,
     pub notification: Option<(String, Instant)>,
     pub stream: UnixStream,
     pub active_screen: Screen,
     pub running: bool,
     pub time: Instant,
     pub contacts: Vec<Peer>,
+    pub contact_idx: ListState,
+    pub chats: Vec<Chat>,
+    pub chat_buf: String,
     pub sender: broadcast::Sender<IPCCmd>,
     pub receiver: broadcast::Receiver<IPCCmd>,
 }
@@ -55,9 +60,13 @@ impl App {
         let (sender, receiver) = tokio::sync::broadcast::channel::<IPCCmd>(100);
         Ok(Self {
             tab: Tab::None,
+            mode: Mode::Normal,
             notification: None,
             stream,
             contacts: vec![],
+            contact_idx: ListState::default(),
+            chats: vec![],
+            chat_buf: String::new(),
             active_screen: Screen::None,
             running: true,
             time,
@@ -132,14 +141,16 @@ impl App {
                 IPCRes::Notification(text) => {
                     self.notification = Some((text, Instant::now()));
                 }
-                IPCRes::PeerList(peers) => self.contacts = peers,
+                IPCRes::PeerList(peers) => {
+                    self.contacts = peers;
+                }
                 _ => {}
             }
         }
         Ok(())
     }
 
-    fn set_layout(&self, f: &mut Frame<'_>, userid: &str) {
+    fn set_layout(&mut self, f: &mut Frame<'_>, userid: &str) {
         let area = f.area();
         let main_block = Block::new()
             .title(Line::from(format!(" Conan - {userid} ")).alignment(HorizontalAlignment::Center))
@@ -154,19 +165,23 @@ impl App {
             .margin(1)
             .direction(Direction::Horizontal)
             .split(inner_block);
-        let selected = matches!(self.tab, Tab::Contact { .. });
+        let selected = matches!(self.tab, Tab::Contact);
+        self.render_contact_list(f, chunks[0], selected);
 
-        // left chunk
-        let names = self
-            .contacts
-            .clone()
-            .iter_mut()
-            .map(|f| f.name.take().unwrap_or("Unknown Peer".to_string()))
-            .collect::<Vec<_>>();
-        self.render_contact_list(f, names, 0, chunks[0], selected);
+        let chat_block = Layout::default()
+            .constraints([Constraint::Percentage(100), Constraint::Min(3)])
+            .direction(Direction::Vertical)
+            .split(chunks[1]);
+
         // right chunk
         let selected = matches!(self.tab, Tab::Chat);
-        self.render_chats(f, selected, chunks[1]);
+
+        if self.contact_idx.selected().is_some() {
+            self.render_chats(f, selected, chat_block[0]);
+            self.render_chat_bar(f, true, chat_block[1]);
+        } else {
+            self.render_chats(f, selected, chunks[1]);
+        }
 
         f.render_widget(main_block, area);
     }
@@ -222,22 +237,5 @@ impl App {
         self.stream.read_exact(cursor.get_mut()).await?;
         let (res, _) = bincode::decode_from_slice(cursor.get_ref(), config::standard())?;
         Ok(res)
-    }
-}
-
-pub trait TerminalControl {
-    fn next_tab(&mut self);
-}
-
-impl TerminalControl for App {
-    fn next_tab(&mut self) {
-        let new_tab = match self.tab {
-            Tab::Contact { .. } => Tab::Chat,
-            _ => Tab::Contact {
-                list: vec!["hello".into(), "world".into()],
-                active: Some(1),
-            },
-        };
-        self.tab = new_tab;
     }
 }

@@ -2,10 +2,7 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Tab {
-    Contact {
-        list: Vec<String>,
-        active: Option<usize>,
-    },
+    Contact,
     Chat,
     None,
 }

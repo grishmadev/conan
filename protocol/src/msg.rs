@@ -22,6 +22,7 @@ pub enum Internal {
     Msg(Msg),
     IPCRes(IPCRes),
     RemovePeer(u8),
+    ChatSent(u8, String),
 }
 
 #[non_exhaustive]
@@ -55,4 +56,10 @@ impl From<&str> for Msg {
     fn from(value: &str) -> Self {
         Msg::Text(value.to_string())
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Mode {
+    Normal,
+    Insert { cursor_pos: usize },
 }

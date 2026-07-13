@@ -19,7 +19,10 @@ use crate::{
     database::DBConnection,
     debug,
     entities::{
-        database::peer::{Peer, PeerData},
+        database::{
+            chat::{Chat, ChatData},
+            peer::{self, Peer, PeerData},
+        },
         server::slave::Slave,
     },
     extras::generate_name,
@@ -156,7 +159,12 @@ impl Manager {
                                                 }
                                             };
                                             if conn.spawn_communication().is_ok() {
+                                                println!("Setup Slave Communication.");
                                                 let mut guard = peers.lock().unwrap();
+                                                println!(
+                                                    "peer idx: {}, conn: {:?}",
+                                                    peer_idx, conn.id
+                                                );
                                                 guard.insert(peer_idx, conn);
                                             }
                                         }
@@ -190,16 +198,22 @@ impl Manager {
         let mut dbconn = Connection::open(&self.config.db_path)?;
         let response_sender = self.response_sender.clone();
         let peers = Arc::clone(&self.peers);
-        // checking if peer is already in our connected
+        if let Some(hsid) = self.service.onion_address()
+            && peer_addr.0 == hsid.display_unredacted().to_string()
         {
-            let peer = dbconn.get_peer(&peer_addr.0)?;
+            msg_sender.send(IPCRes::Notification("Cannot connect to Self.".to_string()))?;
+            return Ok(PeerStatus::NotFound);
+        }
+        // checking if peer is already in our connection
+        {
+            let peer = dbconn.get_peer_from_addr(&peer_addr.0)?;
             if let Some(peer) = peer {
                 #[allow(clippy::cast_possible_truncation)]
                 if peers.lock().unwrap().contains_key(&(peer.id as u8)) {
                     msg_sender.send(IPCRes::Connected(peer_addr.0, peer_addr.1))?;
                     msg_sender.send(IPCRes::Notification(format!(
                         "Already connected to {}",
-                        peer.name.unwrap_or("Peer".to_string())
+                        peer.name
                     )))?;
                     return Ok(PeerStatus::Connected);
                 }
@@ -207,11 +221,12 @@ impl Manager {
         }
         let service = Arc::clone(&self.service);
         let config = self.config.clone();
+        let msg_sender = self.msg_sender.clone();
         tokio::spawn(async move {
             println!("Connecting to peer...");
             let mut stream = None;
 
-            for _ in 0..5 {
+            for i in 1..=5 {
                 match tor_client.connect(&peer_addr).await {
                     Ok(s) => {
                         stream = Some(s);
@@ -219,7 +234,18 @@ impl Manager {
                     }
                     Err(e) => eprintln!("Error while connecting: {e}"),
                 }
-                eprintln!("Retrying...");
+                if i == 5 {
+                    msg_sender
+                        .send(IPCRes::Notification("Failed to Connect.".to_string()))
+                        .unwrap();
+                } else {
+                    msg_sender
+                        .send(IPCRes::Notification(format!(
+                            "Retrying Connection. [{i}/5]"
+                        )))
+                        .unwrap();
+                    eprintln!("Retrying...");
+                }
             }
             let Some(stream) = stream else {
                 msg_sender.send(IPCRes::Error(format!(
@@ -253,21 +279,19 @@ impl Manager {
                 eprintln!("Could not parse Shared Secret Key. Aborting.");
                 return;
             };
-            let known = dbconn.get_peer(&peer_addr.0).unwrap();
-            let mut idx = None;
+            let known = dbconn.get_peer_from_addr(&peer_addr.0).unwrap();
             let trans = dbconn.transaction().unwrap();
-            if known.is_none() {
+            let idx = if let Some(known_peer) = known {
+                known_peer.id
+            } else {
                 let peer = Peer::build(&generate_name(random_range(3..10)), &peer_addr.0);
                 let peer = trans.insert_peer(peer).unwrap();
-                idx = Some(peer.id as u8);
-            }
-            let Some(idx) = idx else {
-                eprintln!("Could not add peer to database.");
-                return;
+                peer.id
             };
 
             let mut conn = Slave {
-                id: idx,
+                #[allow(clippy::cast_possible_truncation)]
+                id: idx as u8,
                 reader: Some(reader),
                 writer,
                 service,
@@ -280,7 +304,7 @@ impl Manager {
             if conn.spawn_communication().is_ok() {
                 let mut peers = peers.lock().unwrap();
                 #[allow(clippy::cast_possible_truncation)]
-                peers.insert(idx, conn);
+                peers.insert(idx as u8, conn);
                 trans.commit().unwrap();
             } else {
                 _ = trans.rollback();
@@ -299,12 +323,15 @@ impl Manager {
         let mut rec = self.response_receiver.resubscribe();
         let sen = self.msg_sender.clone();
         let peers = Arc::clone(&self.peers);
+        let dbconn = Connection::open(&self.config.db_path)?;
         tokio::spawn(async move {
             while let Ok(internal) = rec.recv().await {
                 let mut res = None;
                 match internal.1 {
                     Internal::Msg(msg) => match msg {
                         Msg::Text(text) => {
+                            let chat = Chat::build(&text, internal.0 as u32, 1);
+                            dbconn.insert_chat(chat).unwrap();
                             res = Some(IPCRes::Text(internal.0, text));
                         }
                         Msg::Verified => {
@@ -314,7 +341,9 @@ impl Manager {
                     },
                     Internal::RemovePeer(idx) => {
                         if let Ok(mut guard) = peers.lock() {
-                            guard.remove(&idx);
+                            if let Some(conn) = guard.remove(&idx) {
+                                println!("Removing Connection: {}", conn.id);
+                            }
                         }
                     }
                     _ => continue,

@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf},
+    io::{ReadHalf, WriteHalf},
     sync::broadcast,
 };
 use tor_hsservice::RunningOnionService;
@@ -14,11 +14,10 @@ use tor_hsservice::RunningOnionService;
 use crate::{
     comm::enums::IPCRes,
     config::ConanConfig,
-    database::DBConnection,
     entities::database::peer::{Peer, PeerData},
     extras::generate_name,
     msg::{Internal, Msg},
-    operations::{decrypt, encrypt, listener_actor},
+    operations::{listener_actor, recv},
 };
 pub struct Slave {
     pub id: u8,
@@ -48,20 +47,16 @@ impl Slave {
         let response_sender = self.response_sender.clone();
         let id = self.id;
         tokio::spawn(async move {
-            let mut buf = [0u8; 4096];
             let mut threshold = 5;
             while threshold != 0 {
-                match reader.read(&mut buf).await {
-                    Ok(0) => {}
-                    Ok(n) => {
-                        let ssk = ssk.read().unwrap();
-                        let Ok(decrypted) = decrypt(&ssk, &buf[..n]) else {
-                            eprintln!("Found Corrupted message: {:?}", &buf[..n]);
-                            continue;
-                        };
-                        let msg = (0, Internal::Msg(Msg::from_bytes(&decrypted)));
+                match recv(&mut reader, Arc::clone(&ssk)).await {
+                    Ok(data) => {
+                        let msg = Msg::from_bytes(&data);
+                        println!("msg: {:?}", msg);
+                        let msg = (0, Internal::Msg(msg));
                         _ = response_sender.send(msg);
                         threshold = 5;
+                        continue;
                     }
                     Err(e) => {
                         eprintln!("Error writing to socket.\n{e}");
@@ -69,9 +64,11 @@ impl Slave {
                     }
                 }
                 if threshold != 0 {
-                    eprintln!("Retrying...");
+                    eprintln!("Retrying read...");
                 } else {
-                    response_sender.send((id, Internal::RemovePeer(id)));
+                    response_sender
+                        .send((id, Internal::RemovePeer(id)))
+                        .unwrap();
                 }
             }
         });
@@ -107,7 +104,7 @@ impl Slave {
         let Some(remote_hsid) = remote_onion_key else {
             return Err("No Remote HsId key assigned. Aborting.".into());
         };
-        let known = self.dbconn.get_peer(&remote_hsid)?;
+        let known = self.dbconn.get_peer_from_addr(&remote_hsid)?;
         let mut idx = 0;
         if known.is_none() {
             let name = generate_name(random_range(4..10));
@@ -115,10 +112,8 @@ impl Slave {
             self.id = peer.id as u8;
             idx = peer.id as u8;
         }
-        let name = if let Some(peer) = known
-            && let Some(name) = peer.name
-        {
-            name
+        let name = if let Some(peer) = known {
+            peer.name
         } else {
             "A New Peer".into()
         };
@@ -126,23 +121,5 @@ impl Slave {
             "{name} just connected to you."
         )))?;
         Ok(idx)
-    }
-
-    /// Encrypts message before writing to writer
-    pub async fn send(&mut self, msg: Vec<u8>) -> Result<(), Box<dyn Error>> {
-        let ssk = self.shared_secret_key.read().unwrap();
-        let encrypted = encrypt(&ssk, &msg)?;
-        self.writer.write_all(&encrypted).await?;
-        self.writer.flush().await?;
-        Ok(())
-    }
-
-    /// Decrypts message before returning
-    pub async fn recv(&mut self) -> Result<Vec<u8>, Box<dyn Error>> {
-        let mut buf = [0u8; 4096];
-        let size = self.reader.as_mut().unwrap().read(&mut buf).await?;
-        let ssk = self.shared_secret_key.read().unwrap();
-        let decrypted = decrypt(&ssk, &buf[..size])?;
-        Ok(decrypted)
     }
 }

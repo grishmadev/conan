@@ -6,8 +6,9 @@ use conanprotocol::{
         server::{manager::Manager, master::Master},
     },
     msg::Msg,
+    operations::send,
 };
-use std::error::Error;
+use std::{error::Error, sync::Arc};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -40,13 +41,37 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 IPCCmd::Text(idx, text) => {
-                    let mut peers = manager.peers.lock().unwrap();
-                    let Some(target) = peers.get_mut(&idx) else {
-                        eprintln!("Could not find peer.");
-                        continue;
+                    println!("msg to send: {idx}, {text}");
+                    let peers = Arc::clone(&manager.peers);
+                    let mut peers = peers.lock().unwrap();
+                    let target = if let Some(target) = peers.get_mut(&idx) {
+                        target
+                    } else {
+                        let Some(peer) = manager.dbconn.get_peer_from_id(idx as u32)? else {
+                            eprintln!("Could not find peer.");
+                            continue;
+                        };
+                        for _ in 0..5 {
+                            match manager.connect_as_dialer((peer.address.clone(), 80)) {
+                                Ok(_) => {
+                                    break;
+                                }
+                                Err(e) => eprintln!("Cannot connect as Dialer:\n{e}"),
+                            }
+                        }
+                        let Some(target) = peers.get_mut(&idx) else {
+                            eprintln!("Could not find peer.");
+                            continue;
+                        };
+                        target
                     };
                     let encoded = Msg::Text(text).to_vec();
-                    target.send(encoded).await?;
+                    send(
+                        &mut target.writer,
+                        encoded,
+                        Arc::clone(&target.shared_secret_key),
+                    )
+                    .await?;
                 }
                 IPCCmd::PeerList => {
                     let peers = manager.dbconn.list_all_peers()?;

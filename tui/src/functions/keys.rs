@@ -50,6 +50,10 @@ impl Keys for App {
                 }
             }
             KeyCode::Char('d') if matches!(self.tab, Tab::Contact) => {
+                if self.contact_idx.selected() == Some(0) {
+                    self.notification = Some(("Cannot delete Self".into(), Instant::now()));
+                    return Ok(());
+                }
                 let Some(conn) = self.current_contact() else {
                     return Ok(());
                 };
@@ -185,6 +189,11 @@ impl Keys for App {
                                 println!("Peer not found.");
                                 return Ok(());
                             };
+                            if !current_peer.connected {
+                                self.notification =
+                                    Some(("Contact not connected.".into(), Instant::now()));
+                                return Ok(());
+                            }
                             let chat = Chat::chat_to_send(&self.chat_buf, current_peer.id);
                             self.chats.push(chat);
                             self.chat_buf = String::new();

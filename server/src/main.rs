@@ -19,13 +19,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (worker_sender, worker_receiver) = std::sync::mpsc::channel::<IPCCmd>();
     let (msg_sender, msg_receiver) = tokio::sync::broadcast::channel::<IPCRes>(100);
     let mut master = Master::build(None, worker_sender, msg_receiver);
+    println!("Starting Master...");
+    master.setup_communication()?;
     let mut manager = Manager::create(msg_sender.clone(), config).await?;
     println!("Starting Manager..");
     manager.init_server()?;
     println!("Manager Started. Establishing Message Routes..");
     manager.setup_slave_communication()?;
-    println!("Starting Master...");
-    master.setup_communication()?;
     println!("All Set.");
     loop {
         if let Ok(s) = worker_receiver.recv() {

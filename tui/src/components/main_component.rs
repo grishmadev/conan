@@ -50,7 +50,7 @@ impl MainComponents for App {
     fn render_chat_bar(&mut self, f: &mut Frame<'_>, selected: bool, area: Rect) {
         let text = Line::from(self.chat_buf.clone())
             .left_aligned()
-            .style(Style::new().light_blue());
+            .style(Style::default());
         let chat_style = if selected {
             Style::new().light_blue()
         } else {
@@ -89,14 +89,14 @@ impl MainComponents for App {
                 ListItem::new(i.name.clone()).style(if i.connected {
                     Style::new().green()
                 } else {
-                    Style::default()
+                    Style::new().white()
                 })
             })
             .collect::<Vec<_>>();
         let contact_list = List::new(list_items)
             .block(left_block)
             .style(contact_style)
-            .highlight_style(Style::new().bg(Color::LightBlue));
+            .highlight_style(Style::default().bg(Color::LightBlue));
 
         f.render_stateful_widget(contact_list, area, &mut self.contact_idx);
     }

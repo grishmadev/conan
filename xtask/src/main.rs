@@ -8,7 +8,6 @@ use std::error::Error;
 async fn main() -> Result<(), Box<dyn Error>> {
     let dbpath = parse_config()?;
     let conn = Connection::open(dbpath.db_path)?;
-    let chats = conn.execute("DELETE FROM chat WHERE 1 = 1", ())?;
-    println!("chats: {:#?}", chats);
+    conn.execute("DELETE FROM chat WHERE 1 = 1", ())?;
     Ok(())
 }

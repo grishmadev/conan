@@ -64,6 +64,9 @@ pub fn parse_config() -> Result<ConanConfig, Box<dyn std::error::Error>> {
         Ok(s) => Some(s),
         Err(e) => {
             eprintln!("Config Error, {e}\nUsing default.");
+            let mut conan_dir = home_path.clone();
+            conan_dir.push_str("/.conan");
+            _ = fs::create_dir_all(&conan_dir);
             None
         }
     };
@@ -112,7 +115,22 @@ pub fn parse_config() -> Result<ConanConfig, Box<dyn std::error::Error>> {
         db_path.push_str(DATABASE_PATH);
         db_path
     };
-    _ = fs::create_dir(&cache_path);
+    _ = fs::create_dir_all(&cache_path);
+    if let Err(e) = fs::create_dir_all(&arti_key_store) {
+        eprintln!("Warning: could not create keystore dir: {e}");
+    } else {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&arti_key_store, fs::Permissions::from_mode(0o700));
+        }
+    }
+    if let Some(parent) = std::path::Path::new(&db_path).parent() {
+        _ = fs::create_dir_all(parent);
+    }
+    if let Some(parent) = std::path::Path::new(&socket_path).parent() {
+        _ = fs::create_dir_all(parent);
+    }
     if setup_db(&db_path).is_err() {
         eprintln!("Could not setup Database.\nAborting");
         process::exit(1);

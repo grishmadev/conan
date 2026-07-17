@@ -62,7 +62,12 @@ impl App {
             s
         } else {
             eprintln!("Server not started. Starting.");
-            Command::new("conan-server")
+            let server_bin = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| d.join("conan-server")))
+                .filter(|p| p.exists())
+                .unwrap_or_else(|| "conan-server".into());
+            Command::new(server_bin)
                 .args([
                     "-s",
                     &config.socket_path,
@@ -76,8 +81,12 @@ impl App {
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .spawn()?;
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            UnixStream::connect(socket_path).await?
+            loop {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                if let Ok(s) = UnixStream::connect(socket_path).await {
+                    break s;
+                }
+            }
         };
         let time = Instant::now();
         let (sender, receiver) = tokio::sync::broadcast::channel::<IPCCmd>(100);

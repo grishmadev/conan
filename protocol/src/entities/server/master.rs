@@ -9,7 +9,7 @@ use tor_hsservice::HsId;
 
 use crate::{
     comm::enums::{IPCCmd, IPCRes, encode},
-    config::parse_config,
+    config::ConanConfig,
 };
 
 #[derive(Debug)]
@@ -37,11 +37,10 @@ impl Master {
     }
 
     /// # Errors
-    pub fn setup_communication(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let Ok(config) = parse_config() else {
-            eprintln!("Something wrong with config file.");
-            return Ok(());
-        };
+    pub fn setup_communication(
+        &mut self,
+        config: &ConanConfig,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let sock_path = config.socket_path.clone();
         let mut sock_dir = sock_path.split('/').collect::<Vec<_>>();
         sock_dir.pop();
@@ -95,11 +94,9 @@ impl Master {
                     }
                 });
 
-                let msg_rec = msg_rec.resubscribe();
+                let mut msg_rec = msg_rec.resubscribe();
                 tokio::spawn(async move {
-                    let msg_rec = msg_rec.resubscribe();
                     loop {
-                        let mut msg_rec = msg_rec.resubscribe();
                         match msg_rec.recv().await {
                             Ok(res) => {
                                 let res_bytes = encode(res);

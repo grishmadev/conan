@@ -59,7 +59,7 @@ pub fn parse_config() -> Result<ConanConfig, Box<dyn std::error::Error>> {
     {
         Ok(s) => Some(s),
         Err(e) => {
-            eprintln!("Config Erorr, {e} Using default.");
+            eprintln!("Config Error, {e}\nUsing default.");
             None
         }
     };

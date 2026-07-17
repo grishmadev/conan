@@ -15,6 +15,8 @@ impl DBConnection {
         })
     }
 
+    /// Directly Executes SQL commands
+    /// # Errors
     pub fn execute(&self, query: &str) -> Result<usize, rusqlite::Error> {
         self.connection.execute(query, ())
     }

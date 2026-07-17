@@ -55,7 +55,7 @@ cache-path = "path/to/cache"
 key-path = "path/to/crypto/keys"
 ```
 
-Some examples are provided to you in ![examples](examples/).
+Some examples are provided to you in ![examples](example/).
 
 ## Flags
 

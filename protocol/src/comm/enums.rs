@@ -16,6 +16,7 @@ pub enum IPCCmd {
     PingChat,
     Tick,
     RenamePeer(u8, String),
+    DeletePeer(u32),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Serialize, Deserialize)]
@@ -29,6 +30,8 @@ pub enum IPCRes {
     PeerList(Vec<Peer>),
     ChatList { peer_id: u8, chats: Vec<Chat> },
     Tock,
+    DeletedPeer(u32),
+    RenamedPeer(u32),
 }
 
 /// # Panics

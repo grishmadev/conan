@@ -1,11 +1,11 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use conanprotocol::{comm::enums::IPCCmd, entities::database::chat::Chat, msg::Mode};
 use crossterm::event::{self, Event, KeyCode};
 
 use crate::{
     App,
-    functions::{ConfirmMode, InputMode, terminal_control::TerminalControl},
+    functions::{ConfirmMode, InputMode, LoadingMode, terminal_control::TerminalControl},
     matches::{Screen, Tab},
 };
 
@@ -15,7 +15,7 @@ pub trait Keys {
 
 impl Keys for App {
     async fn manage_keys(&mut self) -> std::io::Result<()> {
-        if event::poll(Duration::from_millis(100))?
+        if event::poll(Duration::from_millis(10))?
             && let Event::Key(key) = event::read()?
         {
             match self.active_screen {
@@ -40,13 +40,20 @@ impl Keys for App {
                         };
                     }
                     KeyCode::Char('r') if matches!(self.tab, Tab::Contact) => {
+                        if let Ok(Some(peer)) = self.current_contact()
+                            && peer.id == 1
+                        {
+                            self.notification =
+                                Some(("Cannot rename self.".to_string(), Instant::now()));
+                            return Ok(());
+                        }
                         let Ok(Some(conn)) = self.current_contact() else {
                             return Ok(());
                         };
                         self.active_screen = Screen::InputScreen {
                             input: conn.name.clone(),
                             cursor_pos: conn.name.len(),
-                            prompt: "Peer Name".into(),
+                            prompt: " Rename Peer ".into(),
                             mode: InputMode::RenamePeer,
                         };
                     }
@@ -54,7 +61,7 @@ impl Keys for App {
                         self.active_screen = Screen::InputScreen {
                             input: String::new(),
                             cursor_pos: 0,
-                            prompt: "New Peer".to_string(),
+                            prompt: " New Peer ".to_string(),
                             mode: InputMode::NewPeer,
                         }
                     }
@@ -88,7 +95,11 @@ impl Keys for App {
                         }
                     }
                     KeyCode::Char('q') => {
-                        self.running = false;
+                        self.active_screen = Screen::ConfirmScreen {
+                            prompt: "Are you sure you want to quit?".into(),
+                            yes_selected: false,
+                            mode: ConfirmMode::Exit,
+                        };
                     }
                     // KeyCode::Backspace if key.modifiers == KeyModifiers::CONTROL => {
                     //     if let Mode::Insert { ref mut cursor_pos } = self.mode {
@@ -125,8 +136,14 @@ impl Keys for App {
                         };
                         match self.tab {
                             Tab::Contact => {
+                                if self.contact_idx.selected() == Some(0) {
+                                    self.notification =
+                                        Some(("Cannot connect to self.".into(), Instant::now()));
+                                    return Ok(());
+                                }
                                 self.active_screen = Screen::LoadingScreen {
                                     loading_text: "Connecting...".into(),
+                                    mode: LoadingMode::NewPeer,
                                 };
                                 self.send(IPCCmd::Connect(addr, 80)).await?;
                                 self.send(IPCCmd::ChatList {
@@ -217,6 +234,7 @@ impl Keys for App {
                             self.send(msg).await?;
                             self.active_screen = Screen::LoadingScreen {
                                 loading_text: "Adding peer...".to_string(),
+                                mode: LoadingMode::NewPeer,
                             };
                         }
                         InputMode::RenamePeer => {
@@ -228,6 +246,7 @@ impl Keys for App {
                             };
                             let msg = IPCCmd::RenamePeer(peer.id as u8, input.clone());
                             self.send(msg).await?;
+                            self.active_screen = Screen::None;
                         }
                     },
                     KeyCode::Esc => {
@@ -238,11 +257,33 @@ impl Keys for App {
                 Screen::LoadingScreen { .. } => {}
                 Screen::ConfirmScreen {
                     ref mut yes_selected,
+                    ref mut mode,
                     ..
                 } => match key.code {
                     KeyCode::Left | KeyCode::Right | KeyCode::Char('l') | KeyCode::Char('h') => {
                         *yes_selected = !*yes_selected;
                     }
+                    KeyCode::Enter => match mode {
+                        ConfirmMode::Exit => {
+                            if *yes_selected {
+                                self.running = false;
+                            }
+                            self.active_screen = Screen::None;
+                        }
+                        ConfirmMode::DeletePeer => {
+                            if *yes_selected {
+                                let Some(idx) = self.contact_idx.selected() else {
+                                    return Ok(());
+                                };
+                                let Some(peer) = self.contacts.get(idx) else {
+                                    return Ok(());
+                                };
+                                let cmd = IPCCmd::DeletePeer(peer.id);
+                                self.send(cmd).await?;
+                            }
+                            self.active_screen = Screen::None;
+                        }
+                    },
                     _ => {}
                 },
             }

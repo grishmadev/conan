@@ -34,16 +34,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     manager.msg_sender.send(IPCRes::Tock)?;
                 }
                 IPCCmd::Connect(addr, port) => {
-                    for _ in 0..5 {
-                        match manager.connect_as_dialer((addr.clone(), port)) {
-                            Ok(_) => break,
-                            Err(e) => eprintln!("Cannot connect as Dialer:\n{e}"),
-                        }
+                    if let Err(e) = manager.connect_as_dialer((addr.clone(), port)) {
+                        return Err(format!("Cannot connect as Dialer:\n{e}").into());
                     }
                 }
                 IPCCmd::Text(idx, text) => {
                     let peers = Arc::clone(&manager.peers);
-                    let mut peers = peers.lock().unwrap();
+                    let mut peers = peers.write().unwrap();
                     let Some(target) = peers.get_mut(&idx) else {
                         println!("Cannot find target peer.");
                         continue;
@@ -59,8 +56,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     .await?;
                 }
                 IPCCmd::PeerList => {
-                    let peers = manager.dbconn.list_all_peers()?;
+                    let mut peers = manager.dbconn.list_all_peers()?;
+                    if let Ok(mem_slaves) = Arc::clone(&manager.peers).read() {
+                        let iter = peers.iter_mut();
+                        for p in iter {
+                            p.connected = mem_slaves.contains_key(&(p.id as u8));
+                        }
+                    }
                     manager.msg_sender.send(IPCRes::PeerList(peers))?;
+                }
+                IPCCmd::DeletePeer(idx) => {
+                    manager.dbconn.delete_peer(idx)?;
+                    manager.msg_sender.send(IPCRes::DeletedPeer(idx))?;
+                }
+                IPCCmd::RenamePeer(idx, new_name) => {
+                    let idx = u32::from(idx);
+                    manager.dbconn.rename_peer(idx, new_name)?;
+                    manager.msg_sender.send(IPCRes::RenamedPeer(idx))?;
                 }
                 IPCCmd::ChatList {
                     peer_id,

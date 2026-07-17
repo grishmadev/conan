@@ -32,7 +32,7 @@ use crate::{
         main_component::MainComponents, new_peer::InputScreen, notification::Notification,
         welcome::WelcomeScreen,
     },
-    functions::keys::Keys,
+    functions::{ConfirmMode, InputMode, LoadingMode, keys::Keys},
     matches::{Screen, Tab},
 };
 
@@ -136,9 +136,11 @@ impl App {
                     }
                 }
                 IPCRes::Connected(_, _) => {
-                    // if let Screen::LoadingScreen { .. } = self.active_screen {
-                    // }
-                    self.active_screen = Screen::None;
+                    if let Screen::LoadingScreen { ref mode, .. } = self.active_screen
+                        && matches!(mode, LoadingMode::NewPeer)
+                    {
+                        self.active_screen = Screen::None;
+                    }
                     self.notification = Some(("Connected.".to_string(), Instant::now()));
                 }
                 IPCRes::Error(text) => {
@@ -168,6 +170,27 @@ impl App {
                         && target.id == u32::from(peer_id)
                     {
                         self.chats = chats;
+                    }
+                }
+                IPCRes::RenamedPeer(idx) => {
+                    if let Some(target) = self.contacts.get(idx as usize) {
+                        self.notification = Some((
+                            format!("Peer name changed to {}", target.name),
+                            Instant::now(),
+                        ));
+                        if let Screen::InputScreen { ref mode, .. } = self.active_screen
+                            && matches!(mode, InputMode::RenamePeer)
+                        {
+                            self.active_screen = Screen::None;
+                        }
+                    }
+                }
+                IPCRes::DeletedPeer(_) => {
+                    self.notification = Some(("Peer deleted.".to_string(), Instant::now()));
+                    if let Screen::ConfirmScreen { ref mode, .. } = self.active_screen
+                        && matches!(mode, ConfirmMode::DeletePeer)
+                    {
+                        self.active_screen = Screen::None;
                     }
                 }
                 _ => {}
@@ -230,7 +253,9 @@ impl App {
             } => {
                 self.render_input_block(f, input, prompt, cursor_pos);
             }
-            Screen::LoadingScreen { ref loading_text } => {
+            Screen::LoadingScreen {
+                ref loading_text, ..
+            } => {
                 self.render_loading_screen(f, loading_text);
             }
             Screen::ConfirmScreen {

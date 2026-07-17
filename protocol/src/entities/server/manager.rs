@@ -174,10 +174,10 @@ impl Manager {
                                                 println!(
                                                     "Slave Communication Pipeline Established."
                                                 );
-                                            };
+                                            }
                                             if let Ok(mut peers) = peers.write() {
                                                 peers.insert(peer_idx, conn);
-                                            };
+                                            }
                                         }
                                         Err(e) => {
                                             eprintln!("Error in connecting to peer: {e}");

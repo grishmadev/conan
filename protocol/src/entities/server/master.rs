@@ -102,7 +102,6 @@ impl Master {
                         let mut msg_rec = msg_rec.resubscribe();
                         match msg_rec.recv().await {
                             Ok(res) => {
-                                println!("res: {res:?}");
                                 let res_bytes = encode(res);
                                 _ = sock_writer.write_all(&res_bytes).await;
                                 _ = sock_writer.flush().await;

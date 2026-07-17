@@ -58,28 +58,26 @@ impl App {
     /// # Errors
     pub async fn create(config: ConanConfig) -> std::io::Result<Self> {
         let socket_path = &config.socket_path;
-        let stream = match UnixStream::connect(socket_path).await {
-            Ok(s) => s,
-            Err(_) => {
-                eprintln!("Could not connect. Retrying.");
-                Command::new("conan-server")
-                    .args([
-                        "-s",
-                        &config.socket_path,
-                        "-k",
-                        &config.arti_key_store,
-                        "-C",
-                        &config.cache_path,
-                        "-d",
-                        &config.db_path,
-                    ])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .spawn()
-                    .expect("Failed to start conan-server.");
-                tokio::time::sleep(Duration::from_millis(500)).await;
-                UnixStream::connect(socket_path).await?
-            }
+        let stream = if let Ok(s) = UnixStream::connect(socket_path).await {
+            s
+        } else {
+            eprintln!("Server not started. Starting.");
+            Command::new("conan-server")
+                .args([
+                    "-s",
+                    &config.socket_path,
+                    "-k",
+                    &config.arti_key_store,
+                    "-C",
+                    &config.cache_path,
+                    "-d",
+                    &config.db_path,
+                ])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()?;
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            UnixStream::connect(socket_path).await?
         };
         let time = Instant::now();
         let (sender, receiver) = tokio::sync::broadcast::channel::<IPCCmd>(100);
@@ -181,7 +179,7 @@ impl App {
                     self.contacts = peers;
                 }
                 IPCRes::Text(idx, text) => {
-                    let Some(cur_cont) = self.current_contact()? else {
+                    let Some(cur_cont) = self.current_contact() else {
                         return Ok(());
                     };
                     let idx = u32::from(idx);
@@ -191,7 +189,7 @@ impl App {
                     }
                 }
                 IPCRes::ChatList { peer_id, chats } => {
-                    if let Ok(Some(target)) = self.current_contact()
+                    if let Some(target) = self.current_contact()
                         && target.id == u32::from(peer_id)
                     {
                         self.chats = chats;
@@ -325,20 +323,19 @@ impl App {
         Ok(res)
     }
 
-    fn current_contact(&self) -> Result<Option<&Peer>, Box<dyn Error>> {
-        let Some(cur_idx) = self.contact_idx.selected() else {
-            return Ok(None);
-        };
-        let Some(cur_cont) = self.contacts.get(cur_idx) else {
-            return Ok(None);
-        };
-        Ok(Some(cur_cont))
+    /// Fetches current contact in terminal
+    fn current_contact(&self) -> Option<&Peer> {
+        let cur_idx = self.contact_idx.selected()?;
+        self.contacts.get(cur_idx)
     }
 
+    /// Updates chats on screen by calling database via socket
+    /// # Errors
     pub async fn update_chats(&mut self) -> Result<(), Box<dyn Error>> {
         let abs_cur_idx = self.contact_idx.selected();
-        if let Some(cur_idx) = abs_cur_idx.clone() {
+        if let Some(cur_idx) = abs_cur_idx {
             let peer = &self.contacts[cur_idx];
+            #[allow(clippy::cast_possible_truncation)]
             self.send(IPCCmd::ChatList {
                 peer_id: peer.id as u8,
                 msg_amount: 50,

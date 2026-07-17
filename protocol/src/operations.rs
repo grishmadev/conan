@@ -157,6 +157,9 @@ pub fn edhverify(
     *ssk = Some(*shared_secret_key.as_bytes());
 }
 
+/// Perform function of listener once called
+/// # Errors
+/// # Panics
 pub async fn listener_actor(
     arti_key_store: String,
     reader: &mut ReadHalf<DataStream>,
@@ -341,6 +344,8 @@ where
 }
 
 /// Encrypts message before writing to writer
+/// # Errors
+/// # Panics
 pub async fn send<T>(
     writer: &mut WriteHalf<T>,
     msg: Vec<u8>,
@@ -362,6 +367,8 @@ where
 }
 
 /// Decrypts message before returning
+/// # Errors
+/// # Panics
 pub async fn recv<T>(
     reader: &mut ReadHalf<T>,
     ssk: Arc<RwLock<[u8; 32]>>,

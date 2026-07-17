@@ -59,6 +59,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     let mut peers = manager.dbconn.list_all_peers()?;
                     if let Ok(mem_slaves) = Arc::clone(&manager.peers).read() {
                         let iter = peers.iter_mut();
+                        #[allow(clippy::cast_possible_truncation)]
                         for p in iter {
                             p.connected = mem_slaves.contains_key(&(p.id as u8));
                         }

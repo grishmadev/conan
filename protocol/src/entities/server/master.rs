@@ -10,7 +10,6 @@ use tor_hsservice::HsId;
 use crate::{
     comm::enums::{IPCCmd, IPCRes, encode},
     config::parse_config,
-    debug,
 };
 
 #[derive(Debug)]
@@ -71,7 +70,8 @@ impl Master {
                     loop {
                         match sock_reader.read(&mut buf).await {
                             Ok(0) => {
-                                break;
+                                println!("TUI disconnected. Exiting.");
+                                std::process::exit(0);
                             }
                             Ok(n) => {
                                 let cmd = match bincode::decode_from_slice::<IPCCmd, _>(
@@ -102,6 +102,7 @@ impl Master {
                         let mut msg_rec = msg_rec.resubscribe();
                         match msg_rec.recv().await {
                             Ok(res) => {
+                                println!("res: {res:?}");
                                 let res_bytes = encode(res);
                                 _ = sock_writer.write_all(&res_bytes).await;
                                 _ = sock_writer.flush().await;

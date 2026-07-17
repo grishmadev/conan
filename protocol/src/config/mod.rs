@@ -9,7 +9,11 @@ use crate::{
 };
 
 #[derive(Debug, Parser)]
-#[command(about, version, long_about = None)]
+#[command(
+    about,
+    version,
+    long_about = "Conan, a Tor based Decentralized Chat App."
+)]
 pub struct ConanArgs {
     /// Config File
     #[arg(short = 'c', long = "config", default_value = None)]

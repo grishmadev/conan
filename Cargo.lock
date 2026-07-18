@@ -924,19 +924,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "conan-crypto"
+version = "1.0.0"
+dependencies = [
+ "bs58",
+ "chacha20poly1305",
+ "ed25519-dalek",
+ "hex",
+ "hkdf 0.13.0",
+ "rand 0.10.1",
+ "rand_core 0.6.4",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "thiserror 2.0.18",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
 name = "conan-protocol"
 version = "1.0.0"
 dependencies = [
  "arti-client",
  "base64",
  "bincode",
- "chacha20poly1305",
  "chrono",
  "clap",
+ "conan-crypto",
  "config",
  "ed25519-dalek",
  "futures",
- "hkdf 0.13.0",
  "notify-rust",
  "rand 0.10.1",
  "reqwest",
@@ -945,7 +963,6 @@ dependencies = [
  "safelog",
  "serde",
  "serde_json",
- "sha2 0.11.0",
  "ssh-encoding",
  "tokio",
  "tokio-rustls",

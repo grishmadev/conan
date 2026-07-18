@@ -1,9 +1,13 @@
+//! Identity management utilities for conan.
+
 use crate::aead::{KeyMaterial, hkdf_derive};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use zeroize::ZeroizeOnDrop;
+
+// Errors
 
 #[derive(Error, Debug)]
 pub enum IdentityError {
@@ -19,13 +23,25 @@ pub enum IdentityError {
     Io(#[from] std::io::Error),
 }
 
+// Public identity
+
+/// The public half of an identity: a stable address and human-readable fingerprint.
+///
+/// The address is a base58-encoded Ed25519 verifying key prefixed with `atrio:`.
+///
+/// The fingerprint is the first 16 hex characters of the key in `XXXX-XXXX-XXXX-XXXX`
+/// format, intended for out-of-band verification (e.g. reading aloud or comparing
+/// on screen when establishing first contact).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PublicIdentity {
+    /// Ed25519 verifying key encoded as `atrio:<base58(32 bytes)>`.
     pub address: String,
+    /// Human-readable fingerprint of the public key.
     pub fingerprint: String,
 }
 
 impl PublicIdentity {
+    /// Constructs a [`PublicIdentity`] from a [`VerifyingKey`].
     pub fn from_verifying_key(key: &VerifyingKey) -> Self {
         let bytes = key.to_bytes();
         let address = format!("conan:{}", bs58::encode(bytes).into_string());
@@ -36,6 +52,7 @@ impl PublicIdentity {
         }
     }
 
+    /// Recovers the [`VerifyingKey`] from the address string.
     pub fn to_verifying_key(&self) -> Result<VerifyingKey, IdentityError> {
         let encoded = self
             .address
@@ -53,6 +70,7 @@ impl PublicIdentity {
         VerifyingKey::from_bytes(&arr).map_err(|e| IdentityError::InvalidPublicKey(e.to_string()))
     }
 
+    /// `XXXX-XXXX-XXXX-XXXX` — first 16 hex chars of the verifying key bytes.
     fn compute_fingerprint(bytes: &KeyMaterial) -> String {
         let hex = hex::encode(bytes);
         let chars: Vec<char> = hex.to_uppercase().chars().collect();
@@ -65,6 +83,13 @@ impl PublicIdentity {
     }
 }
 
+// Identity
+
+/// A full identity: Ed25519 signing key (private) + [`PublicIdentity`].
+///
+/// The signing key is zeroized on drop. It is never exposed directly;
+/// use [`Identity::to_secret_key`] when persistence is required, and
+/// zeroize the result as soon as it has been stored.
 #[derive(ZeroizeOnDrop)]
 pub struct Identity {
     #[zeroize(skip)]
@@ -73,6 +98,7 @@ pub struct Identity {
 }
 
 impl Identity {
+    /// Generates a new [`Identity`] using the OS random number generator.
     pub fn generate() -> Result<Self, IdentityError> {
         let signing_key = SigningKey::generate(&mut OsRng);
         let verifying_key = signing_key.verifying_key();
@@ -83,6 +109,7 @@ impl Identity {
         })
     }
 
+    /// Restores an [`Identity`] from a previously exported secret key.
     pub fn from_secret_key(bytes: KeyMaterial) -> Result<Self, IdentityError> {
         let signing_key = SigningKey::from_bytes(&bytes);
         let verifying_key = signing_key.verifying_key();
@@ -93,14 +120,20 @@ impl Identity {
         })
     }
 
+    /// Exports the signing key bytes, wrapped in [`zeroize::Zeroizing`].
+    ///
+    /// The returned value will be zeroed when dropped. Store immediately
+    /// and do not keep the value in scope longer than necessary.
     pub fn to_secret_key(&self) -> zeroize::Zeroizing<KeyMaterial> {
         zeroize::Zeroizing::new(self.signing_key.to_bytes())
     }
 
+    /// Signs `message` with this identity's private key.
     pub fn sign(&self, message: &[u8]) -> Signature {
         self.signing_key.sign(message)
     }
 
+    /// Verifies `signature` over `message` against `public`.
     pub fn verify(
         public: &PublicIdentity,
         message: &[u8],
@@ -111,13 +144,32 @@ impl Identity {
             .map_err(|_| IdentityError::InvalidSignature)
     }
 
+    /// Derives an X25519 static secret from this Ed25519 signing key.
+    ///
+    /// # Why HKDF here?
+    ///
+    /// Ed25519 and X25519 keys live in the same underlying curve group, but
+    /// using the Ed25519 private scalar directly as an X25519 secret is unsafe:
+    /// it would create cross-protocol linkage between signing and key-agreement
+    /// operations. HKDF provides a clean domain separation.
+    ///
+    /// # HKDF parameters
+    ///
+    /// - `ikm`  = Ed25519 signing key bytes (32 bytes of strong uniform entropy →
+    ///            no external salt needed; the IKM itself is the entropy source).
+    /// - `salt` = `b""` (empty → HKDF uses a zero-filled block internally, per RFC 5869
+    ///            §2.2, which is correct when the IKM is already uniformly random).
+    /// - `info` = `b"atrio-v1-ed25519-to-x25519"` (domain label scoping this
+    ///            derivation to this protocol and purpose).
     pub fn to_x25519_secret(&self) -> x25519_dalek::StaticSecret {
-        let ed_bytes = self.signing_key.to_bytes();
-        let derived = hkdf_derive::<32>(&ed_bytes, None, b"conan-v1-ed25519-to-x25519")
+        let signing_key_bytes = self.signing_key.to_bytes();
+        let derived = hkdf_derive::<32>(&signing_key_bytes, None, b"conan-v1-ed25519-to-x25519")
             .expect("HKDF cannot fail with valid-length output");
         x25519_dalek::StaticSecret::from(derived)
     }
 }
+
+// Tests
 
 #[cfg(test)]
 mod tests {
@@ -159,6 +211,7 @@ mod tests {
         let id = Identity::generate().unwrap();
         let s1 = id.to_x25519_secret();
         let s2 = id.to_x25519_secret();
+        // comparation via public key bytes
         use x25519_dalek::PublicKey;
         assert_eq!(
             PublicKey::from(&s1).to_bytes(),

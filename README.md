@@ -21,17 +21,25 @@ Here's how:
 
 ## How do I install Conan?
 
-- To install Conan, clone this repository to your local space.
+- Cargo Ecosystem
+  - Install from the ecosystem by typing
 
-```sh
-git clone https://github.com/grishmadev/conan.git
-```
+  ```sh
+  cargo install conan-chat conan-chat-server
+  ```
 
-- Once cloned, execute the `Makefile` with this command
+- Source Code
+  - To install Conan from Source, clone this repository to your local space.
 
-```sh
-make install
-```
+  ```sh
+  git clone https://github.com/grishmadev/conan.git
+  ```
+
+  - Once cloned, execute the `Makefile` with this command
+
+  ```sh
+  make install
+  ```
 
 ## How to run?
 

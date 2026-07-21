@@ -8,6 +8,7 @@ version = "1.0.0"
 license = "MIT"
 edition = "2024"
 rust-version = "1.90"
+repository = "https://github.com/grishmadev/conan"
 
 [workspace.dependencies]
 conan-protocol = { path = "protocol/", version = "1.0.0" }

@@ -10,8 +10,7 @@ edition = "2024"
 rust-version = "1.90"
 
 [workspace.dependencies]
-conan-protocol = { path = "protocol/" }
-conan-database = { path = "database/" }
+conan-protocol = { path = "protocol/", version = "1.0.0" }
 tokio = { version = "1.52.3", features = ["full"] }
 arti-client = { version = "0.44.0", features = [
   "onion-service-client",

@@ -1,5 +1,5 @@
 [package]
-name = "conan-server"
+name = "conan-chat-server"
 description = "Daemon Server for Conan"
 authors.workspace = true
 version.workspace = true

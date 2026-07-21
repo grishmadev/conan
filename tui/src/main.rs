@@ -1,4 +1,4 @@
-use conan::App;
+use conan_chat::App;
 use conanprotocol::config::parse_config;
 use std::error::Error;
 

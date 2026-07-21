@@ -910,7 +910,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc14f565cf027a105f7a44ccf9e5b424348421a1d8952a8fc9d499d313107789"
 
 [[package]]
-name = "conan"
+name = "conan-chat"
 version = "1.0.0"
 dependencies = [
  "bincode",
@@ -922,6 +922,17 @@ dependencies = [
  "tokio",
  "tor-hscrypto",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "conan-chat-server"
+version = "1.0.0"
+dependencies = [
+ "bincode",
+ "clap",
+ "conan-protocol",
+ "tokio",
+ "tor-hsservice",
 ]
 
 [[package]]
@@ -960,17 +971,6 @@ dependencies = [
  "tor-rtcompat",
  "x25519-dalek",
  "zeroize",
-]
-
-[[package]]
-name = "conan-server"
-version = "1.0.0"
-dependencies = [
- "bincode",
- "clap",
- "conan-protocol",
- "tokio",
- "tor-hsservice",
 ]
 
 [[package]]

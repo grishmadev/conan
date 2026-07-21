@@ -1,5 +1,5 @@
 [package]
-name = "conan"
+name = "conan-chat"
 description = "TUI Client for Conan"
 version.workspace = true
 authors.workspace = true

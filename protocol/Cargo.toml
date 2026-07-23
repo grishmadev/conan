@@ -48,3 +48,7 @@ zeroize.workspace = true
 thiserror.workspace = true
 bs58.workspace = true
 hex.workspace = true
+openmls.workspace = true
+openmls_rust_crypto.workspace = true
+openmls_basic_credential.workspace = true
+openmls_memory_storage.workspace = true

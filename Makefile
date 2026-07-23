@@ -17,9 +17,6 @@ copy:
 	echo "Installing to $(install_path)"
 	cp -f target/release/$(prog) "$(install_path)"
 	cp -f target/release/$(server) "$(install_path)"
-	rm -rf $(config_path)
-	mkdir -p "$(config_path)"
-	cp -f example/conan.toml "$(config_path)"
 
 
 install: compile copy

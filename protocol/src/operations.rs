@@ -1,4 +1,5 @@
-use crate::crypto::aead::{self, EncryptedMessage, MessageKey};
+use crate::constants::RATCHET_INFO;
+use crate::crypto::aead::{self, EncryptedMessage, MessageKey, hkdf_derive};
 use crate::crypto::ratchet::{RatchetMessage, RatchetSession};
 use crate::{constants::ARTI_PRIVATE_KEY, msg::Msg};
 use arti_client::DataStream;
@@ -131,9 +132,8 @@ pub fn edhverify(
 /// Both sides derive the same Bob ratchet key from the shared secret,
 /// so Alice can compute Bob's ratchet public key independently.
 /// # Panics
-pub fn derive_bob_ratchet_key(shared_secret: &[u8; 32]) -> (StaticSecret, PublicKey) {
-    use crate::crypto::aead::hkdf_derive;
-    let derived = hkdf_derive::<32>(shared_secret, None, b"conan-v1-bob-ratchet")
+pub fn derive_ratchet_key(shared_secret: &[u8; 32]) -> (StaticSecret, PublicKey) {
+    let derived = hkdf_derive::<32>(shared_secret, None, RATCHET_INFO.as_bytes())
         .expect("HKDF cannot fail with valid-length output");
     let priv_key = StaticSecret::from(derived);
     let pub_key = PublicKey::from(&priv_key);
@@ -235,8 +235,8 @@ pub async fn listener_actor(
 
     // Initialize ratchet session
     // Both sides derive Bob's ratchet key from the shared secret
-    let (bob_dh, _) = derive_bob_ratchet_key(&shared_secret_bytes);
-    let session = RatchetSession::init_receiver(&shared_secret_bytes, bob_dh)?;
+    let (local_priv_key, _) = derive_ratchet_key(&shared_secret_bytes);
+    let session = RatchetSession::init_receiver(&shared_secret_bytes, local_priv_key)?;
 
     Ok((session, assign_remote_hsid.clone()))
 }
@@ -323,7 +323,7 @@ where
 
     // Initialize ratchet session
     // Both sides derive Bob's ratchet key from the shared secret
-    let (_, bob_dh_pub) = derive_bob_ratchet_key(&shared_secret_key);
+    let (_, bob_dh_pub) = derive_ratchet_key(&shared_secret_key);
     let session = RatchetSession::init_sender(&shared_secret_key, &bob_dh_pub.to_bytes())?;
 
     Ok(session)

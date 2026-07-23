@@ -2,9 +2,6 @@
 //!
 //! This module implements the cryptographic layer of the conan E2E messaging
 //! protocol, following the [Signal Double Ratchet specification][dr] (rev. 4, 2025).
-//! The handshake layer (key agreement before the ratchet) is intended to be
-//! provided by a Noise `IK` handshake via the [`snow`][snow] crate, replacing
-//! a manual X3DH implementation.
 //!
 //! # Modules
 //!

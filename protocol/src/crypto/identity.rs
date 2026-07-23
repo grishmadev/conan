@@ -1,11 +1,14 @@
 //! Identity management utilities for conan.
 
+use crate::constants::INFO_ED_TO_X;
+
 use super::aead::{KeyMaterial, hkdf_derive};
 use ed25519_dalek::{
     Signature, Signer, SigningKey, Verifier, VerifyingKey, ed25519::signature::rand_core::OsRng,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use x25519_dalek::StaticSecret;
 use zeroize::ZeroizeOnDrop;
 
 // Errors
@@ -28,14 +31,14 @@ pub enum IdentityError {
 
 /// The public half of an identity: a stable address and human-readable fingerprint.
 ///
-/// The address is a base58-encoded Ed25519 verifying key prefixed with `atrio:`.
+/// The address is a base58-encoded Ed25519 verifying key.
 ///
 /// The fingerprint is the first 16 hex characters of the key in `XXXX-XXXX-XXXX-XXXX`
 /// format, intended for out-of-band verification (e.g. reading aloud or comparing
 /// on screen when establishing first contact).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PublicIdentity {
-    /// Ed25519 verifying key encoded as `atrio:<base58(32 bytes)>`.
+    /// Ed25519 verifying key.
     pub address: String,
     /// Human-readable fingerprint of the public key.
     pub fingerprint: String,
@@ -166,83 +169,14 @@ impl Identity {
     ///
     /// - `ikm`  = Ed25519 signing key bytes (32 bytes of strong uniform entropy → no external salt needed; the IKM itself is the entropy source).
     /// - `salt` = `b""` (empty → HKDF uses a zero-filled block internally, per RFC 5869 §2.2, which is correct when the IKM is already uniformly random).
-    /// - `info` = `b"atrio-v1-ed25519-to-x25519"` (domain label scoping this
+    /// - `info` = `b"conan-v1-ed25519-to-x25519"` (domain label scoping this
     ///
     /// derivation to this protocol and purpose).
     /// # Panics
     pub fn to_x25519_secret(&self) -> x25519_dalek::StaticSecret {
         let signing_key_bytes = self.signing_key.to_bytes();
-        let derived = hkdf_derive::<32>(&signing_key_bytes, None, b"conan-v1-ed25519-to-x25519")
+        let derived = hkdf_derive::<32>(&signing_key_bytes, None, INFO_ED_TO_X)
             .expect("HKDF cannot fail with valid-length output");
-        x25519_dalek::StaticSecret::from(derived)
-    }
-}
-
-// Tests
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use x25519_dalek::PublicKey;
-
-    #[test]
-    fn generate_returns_valid_address() {
-        let id = Identity::generate().unwrap();
-        assert!(id.public.address.starts_with("conan:"));
-        assert!(!id.public.address.contains(' '));
-    }
-
-    #[test]
-    fn roundtrip_secret_key() {
-        let id1 = Identity::generate().unwrap();
-        let bytes = *id1.to_secret_key();
-        let id2 = Identity::from_secret_key(bytes).unwrap();
-        assert_eq!(id1.public.address, id2.public.address);
-    }
-
-    #[test]
-    fn sign_verify_roundtrip() {
-        let id = Identity::generate().unwrap();
-        let msg = b"test message";
-        let sig = id.sign(msg);
-        assert!(Identity::verify(&id.public, msg, &sig).is_ok());
-    }
-
-    #[test]
-    fn verify_with_wrong_key_fails() {
-        let id1 = Identity::generate().unwrap();
-        let id2 = Identity::generate().unwrap();
-        let sig = id1.sign(b"message");
-        assert!(Identity::verify(&id2.public, b"message", &sig).is_err());
-    }
-
-    #[test]
-    fn x25519_derivation_is_deterministic() {
-        let id = Identity::generate().unwrap();
-        let s1 = id.to_x25519_secret();
-        let s2 = id.to_x25519_secret();
-        // comparation via public key bytes
-        assert_eq!(
-            PublicKey::from(&s1).to_bytes(),
-            PublicKey::from(&s2).to_bytes()
-        );
-    }
-
-    #[test]
-    fn x25519_differs_from_ed25519_bytes() {
-        let id = Identity::generate().unwrap();
-        let x_secret = id.to_x25519_secret();
-        let x_pub = PublicKey::from(&x_secret).to_bytes();
-        let ed_pub = id.public.to_verifying_key().unwrap().to_bytes();
-        assert_ne!(x_pub, ed_pub);
-    }
-
-    #[test]
-    fn rejects_missing_prefix() {
-        let fake = PublicIdentity {
-            address: "notconan:abc123".into(),
-            fingerprint: String::new(),
-        };
-        assert!(fake.to_verifying_key().is_err());
+        StaticSecret::from(derived)
     }
 }

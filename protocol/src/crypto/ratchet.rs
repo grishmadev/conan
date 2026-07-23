@@ -4,6 +4,11 @@
 //! providing forward secrecy, break-in recovery, and header encryption for a
 //! messaging session.
 
+use crate::constants::{
+    INFO_CHAIN, INFO_INIT_HKR, INFO_INIT_HKS, INFO_INIT_RK, INFO_MESSAGE, INFO_ROOT, MAX_SKIP,
+    MAX_SKIPPED_KEYS,
+};
+
 use super::aead::{
     EncryptedMessage, KeyMaterial, MessageKey, decrypt_with_aad, encrypt_with_aad, hkdf_derive,
 };
@@ -11,7 +16,7 @@ use ed25519_dalek::ed25519::signature::rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
-use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
+use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::ZeroizeOnDrop;
 
 // Errors
@@ -22,13 +27,13 @@ pub enum RatchetError {
     HkdfExpand,
     #[error("AEAD error: {0}")]
     Aead(#[from] super::aead::AeadError),
-    /// Send chain is not initialised. For the sender (Alice), this indicates a
+    /// Send chain is not initialised. For the sender (remote), this indicates a
     /// bug — `init_sender` always populates the send chain. For the receiver
-    /// (Bob), this means `encrypt` was called before the first DH ratchet step.
+    /// (local), this means `encrypt` was called before the first DH ratchet step.
     #[error("send chain not initialized — encrypt called before first DH ratchet step")]
     SendChainNotInitialized,
-    /// Receive chain is not initialised. This means `decrypt` was called on Bob's
-    /// session before he received Alice's first message (which triggers the first
+    /// Receive chain is not initialised. This means `decrypt` was called on local's
+    /// session before he received remote's first message (which triggers the first
     /// DH ratchet step that creates the recv chain).
     #[error("recv chain not initialized — no message received yet")]
     RecvChainNotInitialized,
@@ -72,23 +77,8 @@ pub struct RatchetMessage {
 // INFO_INIT_HKS  : initial send header key (HKs) from shared secret.
 // INFO_INIT_HKR  : initial recv header key (HKr) from shared secret.
 //
-// HKs and HKr are derived with separate labels so Alice and Bob produce
+// HKs and HKr are derived with separate labels so remote and local produce
 // different keys from the same shared secret for each direction.
-
-const INFO_ROOT: &[u8] = b"conan-v1-root";
-const INFO_CHAIN: &[u8] = b"conan-v1-chain";
-const INFO_MESSAGE: &[u8] = b"conan-v1-message";
-const INFO_INIT_RK: &[u8] = b"conan-v1-init-rk";
-const INFO_INIT_HKS: &[u8] = b"conan-v1-init-hks";
-const INFO_INIT_HKR: &[u8] = b"conan-v1-init-hkr";
-
-/// Maximum number of message keys that can be skipped in a single chain.
-/// High enough to tolerate reordering, low enough to
-/// prevent a malicious sender from causing excessive storage.
-const MAX_SKIP: u64 = 1000;
-
-/// Hard cap on total stored skipped keys across all chains (DOS guard).
-const MAX_SKIPPED_KEYS: usize = 2000;
 
 // HeaderKey
 
@@ -257,9 +247,9 @@ impl SkippedKeys {
 /// (e.g. X3DH or Noise IK). The resulting 32-byte output is passed directly
 /// to `init_sender` / `init_receiver`.
 ///
-/// - Alice (initiator) calls [`RatchetSession::init_sender`] with the shared
-///   secret and Bob's ratchet public key.
-/// - Bob   (responder) calls [`RatchetSession::init_receiver`] with the shared
+/// - remote (initiator) calls [`RatchetSession::init_sender`] with the shared
+///   secret and local's ratchet public key.
+/// - local   (responder) calls [`RatchetSession::init_receiver`] with the shared
 ///   secret and his own ratchet [`StaticSecret`].
 ///
 /// # Security
@@ -277,11 +267,11 @@ pub struct RatchetSession {
     next_header_key_send: Option<HeaderKey>,
     next_header_key_recv: Option<HeaderKey>,
 
-    local_dh_secret: StaticSecret,
+    local_private_key: StaticSecret,
     #[zeroize(skip)]
-    local_dh_pub: X25519PublicKey,
+    local_public_key: PublicKey,
     #[zeroize(skip)]
-    remote_dh_pub: Option<X25519PublicKey>,
+    remote_public_key: Option<PublicKey>,
 
     #[zeroize(skip)]
     send_count: u64,
@@ -301,7 +291,7 @@ impl RatchetSession {
         shared_secret: &KeyMaterial,
         remote_dh_pub_bytes: &KeyMaterial,
     ) -> Result<Self, RatchetError> {
-        let remote_dh_pub = X25519PublicKey::from(*remote_dh_pub_bytes);
+        let remote_public_key = PublicKey::from(*remote_dh_pub_bytes);
 
         // Derive initial keys from the shared secret (output of X3DH handshake).
         let root_key_bytes = hkdf_derive::<32>(shared_secret, None, INFO_INIT_RK)?;
@@ -311,11 +301,11 @@ impl RatchetSession {
         let mut root_key = RootKey::from_bytes(root_key_bytes);
 
         // Generate ephemeral DH keypair for the first ratchet step.
-        let local_secret = StaticSecret::random_from_rng(OsRng);
-        let local_public = X25519PublicKey::from(&local_secret);
+        let local_private_key = StaticSecret::random_from_rng(OsRng);
+        let local_public_key = PublicKey::from(&local_private_key);
 
         // Perform first DH to derive the initial sending chain.
-        let dh_output = local_secret.diffie_hellman(&remote_dh_pub);
+        let dh_output = local_private_key.diffie_hellman(&remote_public_key);
         let (send_chain, next_header_key_send) = root_key.advance(dh_output.as_bytes())?;
 
         Ok(Self {
@@ -326,9 +316,9 @@ impl RatchetSession {
             header_key_recv: None,
             next_header_key_send: Some(next_header_key_send),
             next_header_key_recv: Some(HeaderKey::from_bytes(header_key_recv_bytes)),
-            local_dh_secret: local_secret,
-            local_dh_pub: local_public,
-            remote_dh_pub: Some(remote_dh_pub),
+            local_private_key,
+            local_public_key,
+            remote_public_key: Some(remote_public_key),
             send_count: 0,
             recv_count: 0,
             prev_chain_length: 0,
@@ -340,28 +330,30 @@ impl RatchetSession {
     /// # Errors
     pub fn init_receiver(
         shared_secret: &KeyMaterial,
-        local_dh_secret: StaticSecret,
+        local_private_key: StaticSecret,
     ) -> Result<Self, RatchetError> {
         // Derive initial keys from the shared secret (output of X3DH handshake).
         // Note: HKs and HKr labels are swapped compared to sender — what is "send"
-        // for Alice is "recv" for Bob and vice versa.
+        // for remote is "recv" for local and vice versa.
         let root_key_bytes = hkdf_derive::<32>(shared_secret, None, INFO_INIT_RK)?;
-        let header_key_send_bytes = hkdf_derive::<32>(shared_secret, None, INFO_INIT_HKR)?;
-        let header_key_recv_bytes = hkdf_derive::<32>(shared_secret, None, INFO_INIT_HKS)?;
+        let header_key_send_bytes = hkdf_derive::<32>(shared_secret, None, INFO_INIT_HKS)?;
+        let header_key_recv_bytes = hkdf_derive::<32>(shared_secret, None, INFO_INIT_HKR)?;
 
-        let local_public = X25519PublicKey::from(&local_dh_secret);
+        let root_key = RootKey::from_bytes(root_key_bytes);
+
+        let local_public_key = PublicKey::from(&local_private_key);
 
         Ok(Self {
-            root_key: RootKey::from_bytes(root_key_bytes),
+            root_key,
             send_chain: None,
             recv_chain: None,
             header_key_send: Some(HeaderKey::from_bytes(header_key_send_bytes)),
             header_key_recv: None,
             next_header_key_send: None,
             next_header_key_recv: Some(HeaderKey::from_bytes(header_key_recv_bytes)),
-            local_dh_secret,
-            local_dh_pub: local_public,
-            remote_dh_pub: None,
+            local_private_key,
+            local_public_key,
+            remote_public_key: None,
             send_count: 0,
             recv_count: 0,
             prev_chain_length: 0,
@@ -372,7 +364,7 @@ impl RatchetSession {
     #[must_use]
     /// Returns local Ephemaral public key
     pub fn local_public_key(&self) -> KeyMaterial {
-        self.local_dh_pub.to_bytes()
+        self.local_public_key.to_bytes()
     }
 
     /// Encrypts a plaintext message, producing a [`RatchetMessage`] containing
@@ -389,21 +381,21 @@ impl RatchetSession {
         plaintext: &[u8],
         associated_data: &[u8],
     ) -> Result<RatchetMessage, RatchetError> {
-        // Step 1: Advance the symmetric-key ratchet to get a fresh message key.
+        // Advance the symmetric-key ratchet to get a fresh message key.
         let send_chain = self
             .send_chain
             .as_mut()
             .ok_or(RatchetError::SendChainNotInitialized)?;
         let message_key = send_chain.advance()?;
 
-        // Step 2: Build the plaintext header with current ratchet state.
+        // Build the plaintext header with current ratchet state.
         let header = RatchetHeader::new(
-            self.local_dh_pub.to_bytes(),
+            self.local_public_key.to_bytes(),
             self.prev_chain_length,
             self.send_count,
         );
 
-        // Step 3: Encrypt the header so an observer cannot see the DH public key or counters.
+        // Encrypt the header so an observer cannot see the DH public key or counters.
         let header_key = self
             .header_key_send
             .as_ref()
@@ -415,7 +407,7 @@ impl RatchetSession {
             &[],
         )?;
 
-        // Step 4: Encrypt the payload, binding it to the associated data and encrypted header.
+        // Encrypt the payload, binding it to the associated data and encrypted header.
         let aad = Self::build_aad(associated_data, &encrypted_header);
         let payload = encrypt_with_aad(&message_key, self.send_count, plaintext, &aad)?;
         self.send_count += 1;
@@ -441,11 +433,11 @@ impl RatchetSession {
         msg: &RatchetMessage,
         associated_data: &[u8],
     ) -> Result<Vec<u8>, RatchetError> {
-        // Step 1: Try to decrypt the header with both current and next header keys.
+        // Try to decrypt the header with both current and next header keys.
         let (header, header_key_used) = self.try_decrypt_header(&msg.encrypted_header)?;
         let aad = Self::build_aad(associated_data, &msg.encrypted_header);
 
-        // Step 2: If this message key was skipped earlier, use it directly.
+        // If this message key was skipped earlier, use it directly.
         if let Some(message_key) = self
             .skipped
             .get_and_remove(&header_key_used, header.message_number)
@@ -453,9 +445,9 @@ impl RatchetSession {
             return decrypt_with_aad(&message_key, &msg.payload, &aad).map_err(RatchetError::Aead);
         }
 
-        // Step 3: Detect if the sender performed a DH ratchet step (new DH public key).
+        // Detect if the sender performed a DH ratchet step (new DH public key).
         let is_new_dh_key = self
-            .remote_dh_pub
+            .remote_public_key
             .is_none_or(|p| p.to_bytes() != header.dh_pub);
 
         if is_new_dh_key {
@@ -464,10 +456,10 @@ impl RatchetSession {
             self.dh_ratchet_step(&header.dh_pub)?;
         }
 
-        // Step 4: Skip message keys up to the target message number.
+        // Skip message keys up to the target message number.
         self.skip_message_keys(header.message_number)?;
 
-        // Step 5: Advance the receiving chain and decrypt the payload.
+        // Advance the receiving chain and decrypt the payload.
         let recv_chain = self
             .recv_chain
             .as_mut()
@@ -504,37 +496,37 @@ impl RatchetSession {
     }
 
     fn dh_ratchet_step(&mut self, remote_pub_bytes: &KeyMaterial) -> Result<(), RatchetError> {
-        let remote_pub = X25519PublicKey::from(*remote_pub_bytes);
+        let remote_public_key = PublicKey::from(*remote_pub_bytes);
 
         // Save the current send chain length before switching directions.
         self.prev_chain_length = self.send_count;
         self.send_count = 0;
         self.recv_count = 0;
-        self.remote_dh_pub = Some(remote_pub);
+        self.remote_public_key = Some(remote_public_key);
 
         // Receive direction: compute DH with remote's key, advance root key.
-        let dh_output = self.local_dh_secret.diffie_hellman(&remote_pub);
+        let shared_secret_key = self.local_private_key.diffie_hellman(&remote_public_key);
         let (recv_chain_key, new_next_header_key_recv) =
-            self.root_key.advance(dh_output.as_bytes())?;
+            self.root_key.advance(shared_secret_key.as_bytes())?;
         self.header_key_recv = self.next_header_key_recv.take();
         self.next_header_key_recv = Some(new_next_header_key_recv);
         self.recv_chain = Some(recv_chain_key);
 
         // Send direction: generate new ephemeral DH keypair, advance root key.
         let new_secret = StaticSecret::random_from_rng(OsRng);
-        let new_public = X25519PublicKey::from(&new_secret);
+        let new_public = PublicKey::from(&new_secret);
         if self.next_header_key_send.is_some() {
             self.header_key_send = self.next_header_key_send.take();
         }
 
-        let dh_output_new = new_secret.diffie_hellman(&remote_pub);
+        let new_shared_secret = new_secret.diffie_hellman(&remote_public_key);
         let (send_chain_key, new_next_header_key_send) =
-            self.root_key.advance(dh_output_new.as_bytes())?;
+            self.root_key.advance(new_shared_secret.as_bytes())?;
         self.next_header_key_send = Some(new_next_header_key_send);
         self.send_chain = Some(send_chain_key);
 
-        self.local_dh_secret = new_secret;
-        self.local_dh_pub = new_public;
+        self.local_private_key = new_secret;
+        self.local_public_key = new_public;
 
         Ok(())
     }
@@ -588,142 +580,3 @@ impl RatchetSession {
 }
 
 // Tests
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn setup() -> (RatchetSession, RatchetSession) {
-        let shared_secret = [0xABu8; 32];
-        let bob_dh = StaticSecret::random_from_rng(OsRng);
-        let bob_dh_pub = X25519PublicKey::from(&bob_dh);
-        let alice = RatchetSession::init_sender(&shared_secret, &bob_dh_pub.to_bytes()).unwrap();
-        let bob = RatchetSession::init_receiver(&shared_secret, bob_dh).unwrap();
-        (alice, bob)
-    }
-
-    #[test]
-    fn alice_sends_bob_receives() {
-        let (mut alice, mut bob) = setup();
-        let msg = alice.encrypt(b"hello bob", b"").unwrap();
-        assert_eq!(bob.decrypt(&msg, b"").unwrap(), b"hello bob");
-    }
-
-    #[test]
-    fn bidirectional_conversation() {
-        let (mut alice, mut bob) = setup();
-        let msg = alice.encrypt(b"hello bob", b"").unwrap();
-        assert_eq!(bob.decrypt(&msg, b"").unwrap(), b"hello bob");
-        let msg = bob.encrypt(b"hello alice", b"").unwrap();
-        assert_eq!(alice.decrypt(&msg, b"").unwrap(), b"hello alice");
-        let msg = alice.encrypt(b"second message", b"").unwrap();
-        assert_eq!(bob.decrypt(&msg, b"").unwrap(), b"second message");
-    }
-
-    #[test]
-    fn multiple_sequential_messages() {
-        let (mut alice, mut bob) = setup();
-        for m in &[b"one" as &[u8], b"two", b"three", b"four", b"five"] {
-            let msg = alice.encrypt(m, b"").unwrap();
-            assert_eq!(&bob.decrypt(&msg, b"").unwrap(), m);
-        }
-    }
-
-    #[test]
-    fn ciphertexts_differ_for_same_plaintext() {
-        let (mut alice, _) = setup();
-        let msg1 = alice.encrypt(b"repeated", b"").unwrap();
-        let msg2 = alice.encrypt(b"repeated", b"").unwrap();
-        assert_ne!(msg1.payload.ciphertext, msg2.payload.ciphertext);
-    }
-
-    #[test]
-    fn out_of_order_delivery() {
-        let (mut alice, mut bob) = setup();
-        let msg1 = alice.encrypt(b"message 1", b"").unwrap();
-        let msg2 = alice.encrypt(b"message 2", b"").unwrap();
-        let msg3 = alice.encrypt(b"message 3", b"").unwrap();
-        assert_eq!(bob.decrypt(&msg3, b"").unwrap(), b"message 3");
-        assert_eq!(bob.skipped_keys_count(), 2);
-        assert_eq!(bob.decrypt(&msg1, b"").unwrap(), b"message 1");
-        assert_eq!(bob.decrypt(&msg2, b"").unwrap(), b"message 2");
-        assert_eq!(bob.skipped_keys_count(), 0);
-    }
-
-    #[test]
-    fn out_of_order_across_dh_ratchet() {
-        let (mut alice, mut bob) = setup();
-        let msg_a1 = alice.encrypt(b"a1", b"").unwrap();
-        let msg_a2 = alice.encrypt(b"a2", b"").unwrap();
-        assert_eq!(bob.decrypt(&msg_a2, b"").unwrap(), b"a2");
-        assert_eq!(bob.skipped_keys_count(), 1);
-        let msg_b1 = bob.encrypt(b"b1", b"").unwrap();
-        assert_eq!(alice.decrypt(&msg_b1, b"").unwrap(), b"b1");
-        assert_eq!(bob.decrypt(&msg_a1, b"").unwrap(), b"a1");
-        assert_eq!(bob.skipped_keys_count(), 0);
-    }
-
-    #[test]
-    fn header_prev_chain_length_tracks_previous_chain_length() {
-        let (mut alice, mut bob) = setup();
-        let m1 = alice.encrypt(b"m1", b"").unwrap();
-        let m2 = alice.encrypt(b"m2", b"").unwrap();
-        let m3 = alice.encrypt(b"m3", b"").unwrap();
-        bob.decrypt(&m1, b"").unwrap();
-        bob.decrypt(&m2, b"").unwrap();
-        bob.decrypt(&m3, b"").unwrap();
-        let reply = bob.encrypt(b"reply", b"").unwrap();
-        alice.decrypt(&reply, b"").unwrap();
-        let m4 = alice.encrypt(b"m4", b"").unwrap();
-        bob.decrypt(&m4, b"").unwrap();
-    }
-
-    #[test]
-    fn session_ad_is_authenticated() {
-        let (mut alice, mut bob) = setup();
-        let ad = b"alice-id:bob-id";
-        let msg = alice.encrypt(b"secret", ad).unwrap();
-        assert!(bob.decrypt(&msg, ad).is_ok());
-        assert!(bob.decrypt(&msg, b"wrong-ad").is_err());
-    }
-
-    #[test]
-    fn wrong_shared_secret_fails() {
-        let bob_dh = StaticSecret::random_from_rng(OsRng);
-        let bob_dh_pub = X25519PublicKey::from(&bob_dh);
-        let mut alice = RatchetSession::init_sender(&[0xAAu8; 32], &bob_dh_pub.to_bytes()).unwrap();
-        let mut bob = RatchetSession::init_receiver(&[0xBBu8; 32], bob_dh).unwrap();
-        let msg = alice.encrypt(b"secret", b"").unwrap();
-        assert!(bob.decrypt(&msg, b"").is_err());
-    }
-
-    #[test]
-    fn tampered_ciphertext_fails() {
-        let (mut alice, mut bob) = setup();
-        let mut msg = alice.encrypt(b"important", b"").unwrap();
-        msg.payload.ciphertext[0] ^= 0xFF;
-        assert!(bob.decrypt(&msg, b"").is_err());
-    }
-
-    #[test]
-    fn tampered_header_fails() {
-        let (mut alice, mut bob) = setup();
-        let mut msg = alice.encrypt(b"important", b"").unwrap();
-        msg.encrypted_header.ciphertext[0] ^= 0xFF;
-        assert!(bob.decrypt(&msg, b"").is_err());
-    }
-
-    #[test]
-    fn exceeding_max_skip_returns_error() {
-        let (mut alice, mut bob) = setup();
-        let mut messages: Vec<RatchetMessage> = Vec::new();
-        for _ in 0..=(MAX_SKIP + 1) {
-            messages.push(alice.encrypt(b"x", b"").unwrap());
-        }
-        let last = messages.len() - 1;
-        assert!(matches!(
-            bob.decrypt(&messages[last], b""),
-            Err(RatchetError::TooManySkipped(_))
-        ));
-    }
-}

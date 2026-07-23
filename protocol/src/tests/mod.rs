@@ -1,3 +1,8 @@
+pub mod aead;
+pub mod identity;
+pub mod ratchet;
+use crate::crypto::ratchet::RatchetSession;
+use crate::operations::derive_ratchet_key;
 use bincode::config;
 use ed25519_dalek::ed25519::signature::rand_core::OsRng;
 use x25519_dalek::{EphemeralSecret, PublicKey};
@@ -7,9 +12,6 @@ use crate::msg::Msg;
 #[test]
 /// Tests encryption and decryption using Double Ratchet
 fn test_cryptography() {
-    use crate::crypto::ratchet::RatchetSession;
-    use crate::operations::derive_bob_ratchet_key;
-
     let msg = Msg::Text("This is a test text".to_string());
 
     // Simulate handshake: both sides compute shared secret
@@ -20,7 +22,7 @@ fn test_cryptography() {
     let shared_secret_bytes = *shared_secret_key.as_bytes();
 
     // Both sides derive Bob's ratchet key from shared secret
-    let (bob_dh, bob_dh_pub) = derive_bob_ratchet_key(&shared_secret_bytes);
+    let (bob_dh, bob_dh_pub) = derive_ratchet_key(&shared_secret_bytes);
 
     // Initialize ratchet sessions
     let mut alice =

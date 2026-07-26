@@ -22,6 +22,14 @@ impl Keys for App {
         if event::poll(Duration::from_millis(10))?
             && let Event::Key(key) = event::read()?
         {
+            if key.code == KeyCode::Char('c')
+                && key
+                    .modifiers
+                    .contains(crossterm::event::KeyModifiers::CONTROL)
+            {
+                self.running = false;
+                return Ok(());
+            }
             match self.active_screen {
                 Screen::None => {
                     self.handle_none_screen(key).await?;

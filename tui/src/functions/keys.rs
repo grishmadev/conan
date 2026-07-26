@@ -160,8 +160,14 @@ impl Keys for App {
                 match self.tab {
                     Tab::Contact => {
                         if self.contact_idx.selected() == Some(0) {
-                            self.notification =
-                                Some(("Cannot connect to self.".into(), Instant::now()));
+                            // Self: we don't need loading screen, just load the chat
+                            #[allow(clippy::cast_possible_truncation)]
+                            self.send(IPCCmd::ChatList {
+                                peer_id: id as u8,
+                                msg_amount: 50,
+                            })
+                            .await?;
+                            self.next_tab();
                             return Ok(());
                         }
                         self.active_screen = Screen::LoadingScreen {
@@ -189,7 +195,7 @@ impl Keys for App {
                                 println!("Peer not found.");
                                 return Ok(());
                             };
-                            if !current_peer.connected {
+                            if !current_peer.connected && current_peer.id != 1 {
                                 self.notification =
                                     Some(("Contact not connected.".into(), Instant::now()));
                                 return Ok(());

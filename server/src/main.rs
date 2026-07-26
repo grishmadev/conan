@@ -46,6 +46,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 IPCCmd::Text(idx, text) => {
+                    if idx == 1 {
+                        let chat = Chat::chat_to_send(&text, 1);
+                        manager.dbconn.insert_chat(chat)?;
+                        manager.msg_sender.send(IPCRes::Text(idx, text))?;
+                        continue;
+                    }
                     let peers = Arc::clone(&manager.peers);
                     let mut peers = peers.write().unwrap();
                     let Some(target) = peers.get_mut(&idx) else {

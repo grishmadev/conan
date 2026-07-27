@@ -7,7 +7,6 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, List, ListDirection, ListItem},
 };
-use tracing_subscriber::fmt::format;
 
 use crate::App;
 

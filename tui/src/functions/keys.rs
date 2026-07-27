@@ -96,11 +96,6 @@ impl Keys for App {
                     mode: InputMode::NewPeer,
                 }
             }
-            // KeyCode::Char('i') => {
-            //     if self.mode == Mode::Normal && self.tab == Tab::Chat {
-            //         self.mode = Mode::Insert { cursor_pos: 0 };
-            //     }
-            // }
             KeyCode::Char('j') => {
                 if self.tab == Tab::Contact {
                     if let Some(idx) = self.contact_idx.selected()
@@ -132,13 +127,6 @@ impl Keys for App {
                     mode: ConfirmMode::Exit,
                 };
             }
-            // KeyCode::Backspace if key.modifiers == KeyModifiers::CONTROL => {
-            //     if let Mode::Insert { ref mut cursor_pos } = self.mode {
-            //         while *cursor_pos > 0 && self.chat_buf.remove(*cursor_pos) != ' ' {
-            //             *cursor_pos -= 1;
-            //         }
-            //     }
-            // }
             KeyCode::Backspace => {
                 if let Mode::Insert { ref mut cursor_pos } = self.mode
                     && *cursor_pos > 0
@@ -190,33 +178,6 @@ impl Keys for App {
                         })
                         .await?;
                     }
-                    // Tab::Chat => match self.mode {
-                    //     Mode::Normal => {
-                    //         #[allow(clippy::cast_possible_truncation)]
-                    //         self.send(IPCCmd::Text(id as u8, self.chat_buf.trim().into()))
-                    //             .await?;
-                    //         let Some(selected) = self.contact_idx.selected() else {
-                    //             println!("No chat selected.");
-                    //             return Ok(());
-                    //         };
-                    //         let Some(current_peer) = self.contacts.get(selected) else {
-                    //             println!("Peer not found.");
-                    //             return Ok(());
-                    //         };
-                    //         if !current_peer.connected && current_peer.id != 1 {
-                    //             self.notification =
-                    //                 Some(("Contact not connected.".into(), Instant::now()));
-                    //             return Ok(());
-                    //         }
-                    //         let chat = Chat::chat_to_send(&self.chat_buf, current_peer.id);
-                    //         self.chats.push(chat);
-                    //         self.chat_buf = String::new();
-                    //     }
-                    //     Mode::Insert { ref mut cursor_pos } => {
-                    //         self.chat_buf.insert(*cursor_pos, '\n');
-                    //         *cursor_pos += 1;
-                    //     }
-                    // },
                     Tab::Chat => {
                         if self.chat_buf.trim().is_empty() {
                             return Ok(()); // prevent empty messages
@@ -262,6 +223,7 @@ impl Keys for App {
                 }
             }
             KeyCode::Esc => {
+                // Return to contact list from chat
                 if self.tab == Tab::Chat {
                     self.tab = Tab::Contact;
                     self.mode = Mode::Normal;

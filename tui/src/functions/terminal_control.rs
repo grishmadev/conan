@@ -5,13 +5,6 @@ pub trait TerminalControl {
 }
 
 impl TerminalControl for App {
-    // fn next_tab(&mut self) {
-    //     let new_tab = match self.tab {
-    //         Tab::Contact => Tab::Chat,
-    //         _ => Tab::Contact,
-    //     };
-    //     self.tab = new_tab;
-    // }
     fn next_tab(&mut self) {
         match self.tab {
             Tab::None | Tab::Contact => {

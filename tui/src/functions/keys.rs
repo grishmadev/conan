@@ -218,6 +218,9 @@ impl Keys for App {
                     //     }
                     // },
                     Tab::Chat => {
+                        if self.chat_buf.trim().is_empty() {
+                            return Ok(()); // prevent empty messages
+                        }
                         #[allow(clippy::cast_possible_truncation)]
                         self.send(IPCCmd::Text(id as u8, self.chat_buf.trim().into()))
                             .await?;

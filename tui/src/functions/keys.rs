@@ -58,7 +58,9 @@ impl Keys for App {
                 }
             }
             KeyCode::Char('d') if matches!(self.tab, Tab::Contact) => {
-                if self.contact_idx.selected() == Some(0) {
+                if let Some(peer) = self.current_contact()
+                    && peer.id == 1
+                {
                     self.notification = Some(("Cannot delete Self".into(), Instant::now()));
                     return Ok(());
                 }
@@ -155,7 +157,9 @@ impl Keys for App {
                 };
                 match self.tab {
                     Tab::Contact => {
-                        if self.contact_idx.selected() == Some(0) {
+                        if let Some(current_peer) = self.current_contact()
+                            && current_peer.id == 1
+                        {
                             // Self: we don't need loading screen, just load the chat
                             #[allow(clippy::cast_possible_truncation)]
                             self.send(IPCCmd::ChatList {

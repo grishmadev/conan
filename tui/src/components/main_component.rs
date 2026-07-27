@@ -41,8 +41,14 @@ impl MainComponents for App {
                 format!("{} - {}", sub, c.data)
             })
             .collect::<Vec<_>>();
-        let chats = List::new(chats).direction(ListDirection::BottomToTop);
         let chats_area = chat_block.inner(area);
+        let total = chats.len();
+        let visible = chats_area.height as usize;
+        let max_scroll = total.saturating_sub(visible);
+        let scroll = self.chat_scroll.min(max_scroll);
+        self.chat_scroll = scroll;
+        let visible_chats: Vec<String> = chats.into_iter().skip(scroll).take(visible).collect();
+        let chats = List::new(visible_chats).direction(ListDirection::BottomToTop);
         f.render_widget(chats, chats_area);
         f.render_widget(chat_block, area);
     }

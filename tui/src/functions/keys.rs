@@ -96,12 +96,12 @@ impl Keys for App {
                     mode: InputMode::NewPeer,
                 }
             }
-            KeyCode::Char('i') => {
-                if self.mode == Mode::Normal && self.tab == Tab::Chat {
-                    self.mode = Mode::Insert { cursor_pos: 0 };
-                }
-            }
-            KeyCode::Char('j') | KeyCode::Down => {
+            // KeyCode::Char('i') => {
+            //     if self.mode == Mode::Normal && self.tab == Tab::Chat {
+            //         self.mode = Mode::Insert { cursor_pos: 0 };
+            //     }
+            // }
+            KeyCode::Char('j') => {
                 if self.tab == Tab::Contact {
                     if let Some(idx) = self.contact_idx.selected()
                         && idx == self.contacts.len() - 1
@@ -112,7 +112,7 @@ impl Keys for App {
                     }
                 }
             }
-            KeyCode::Char('k') | KeyCode::Up => {
+            KeyCode::Char('k') => {
                 if self.tab == Tab::Contact {
                     if let Some(idx) = self.contact_idx.selected()
                         && idx == 0
@@ -190,33 +190,57 @@ impl Keys for App {
                         })
                         .await?;
                     }
-                    Tab::Chat => match self.mode {
-                        Mode::Normal => {
-                            #[allow(clippy::cast_possible_truncation)]
-                            self.send(IPCCmd::Text(id as u8, self.chat_buf.trim().into()))
-                                .await?;
-                            let Some(selected) = self.contact_idx.selected() else {
-                                println!("No chat selected.");
-                                return Ok(());
-                            };
-                            let Some(current_peer) = self.contacts.get(selected) else {
-                                println!("Peer not found.");
-                                return Ok(());
-                            };
-                            if !current_peer.connected && current_peer.id != 1 {
-                                self.notification =
-                                    Some(("Contact not connected.".into(), Instant::now()));
-                                return Ok(());
-                            }
-                            let chat = Chat::chat_to_send(&self.chat_buf, current_peer.id);
-                            self.chats.push(chat);
-                            self.chat_buf = String::new();
+                    // Tab::Chat => match self.mode {
+                    //     Mode::Normal => {
+                    //         #[allow(clippy::cast_possible_truncation)]
+                    //         self.send(IPCCmd::Text(id as u8, self.chat_buf.trim().into()))
+                    //             .await?;
+                    //         let Some(selected) = self.contact_idx.selected() else {
+                    //             println!("No chat selected.");
+                    //             return Ok(());
+                    //         };
+                    //         let Some(current_peer) = self.contacts.get(selected) else {
+                    //             println!("Peer not found.");
+                    //             return Ok(());
+                    //         };
+                    //         if !current_peer.connected && current_peer.id != 1 {
+                    //             self.notification =
+                    //                 Some(("Contact not connected.".into(), Instant::now()));
+                    //             return Ok(());
+                    //         }
+                    //         let chat = Chat::chat_to_send(&self.chat_buf, current_peer.id);
+                    //         self.chats.push(chat);
+                    //         self.chat_buf = String::new();
+                    //     }
+                    //     Mode::Insert { ref mut cursor_pos } => {
+                    //         self.chat_buf.insert(*cursor_pos, '\n');
+                    //         *cursor_pos += 1;
+                    //     }
+                    // },
+                    Tab::Chat => {
+                        #[allow(clippy::cast_possible_truncation)]
+                        self.send(IPCCmd::Text(id as u8, self.chat_buf.trim().into()))
+                            .await?;
+                        let Some(selected) = self.contact_idx.selected() else {
+                            println!("No chat selected.");
+                            return Ok(());
+                        };
+                        let Some(current_peer) = self.contacts.get(selected) else {
+                            println!("Peer not found.");
+                            return Ok(());
+                        };
+                        if !current_peer.connected && current_peer.id != 1 {
+                            self.notification =
+                                Some(("Contact not connected.".into(), Instant::now()));
+                            return Ok(());
                         }
-                        Mode::Insert { ref mut cursor_pos } => {
-                            self.chat_buf.insert(*cursor_pos, '\n');
-                            *cursor_pos += 1;
+                        let chat = Chat::chat_to_send(&self.chat_buf, current_peer.id);
+                        self.chats.push(chat);
+                        self.chat_buf = String::new();
+                        if let Mode::Insert { ref mut cursor_pos } = self.mode {
+                            *cursor_pos = 0;
                         }
-                    },
+                    }
                     Tab::None => {}
                 }
             }
@@ -235,8 +259,43 @@ impl Keys for App {
                 }
             }
             KeyCode::Esc => {
-                self.mode = Mode::Normal;
+                if self.tab == Tab::Chat {
+                    self.tab = Tab::Contact;
+                    self.mode = Mode::Normal;
+                }
             }
+            KeyCode::Down => match self.tab {
+                Tab::Contact => {
+                    if let Some(idx) = self.contact_idx.selected()
+                        && idx == self.contacts.len() - 1
+                    {
+                        self.contact_idx.select_first();
+                    } else {
+                        self.contact_idx.select_next();
+                    }
+                }
+                Tab::Chat => {
+                    self.chat_scroll = self.chat_scroll.saturating_sub(5);
+                }
+                _ => {}
+            },
+            KeyCode::Up => match self.tab {
+                Tab::Contact => {
+                    if let Some(idx) = self.contact_idx.selected()
+                        && idx == 0
+                    {
+                        if let Some(idx) = self.contact_idx.selected_mut() {
+                            *idx = self.contacts.len() - 1;
+                        }
+                    } else {
+                        self.contact_idx.select_previous();
+                    }
+                }
+                Tab::Chat => {
+                    self.chat_scroll = self.chat_scroll.saturating_add(5);
+                }
+                _ => {}
+            },
             _ => {}
         }
         Ok(())

@@ -161,6 +161,7 @@ impl App {
             self.manage_keys().await?;
             self.manage_ipc().await?;
         }
+        crossterm::terminal::disable_raw_mode()?;
         terminal.clear()?;
         Ok(())
     }

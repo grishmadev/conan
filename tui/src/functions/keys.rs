@@ -352,7 +352,6 @@ impl Keys for App {
             KeyCode::Enter => match mode {
                 ConfirmMode::Exit => {
                     if *yes_selected {
-                        crossterm::terminal::disable_raw_mode()?;
                         self.running = false;
                     }
                     self.active_screen = Screen::None;

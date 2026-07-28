@@ -115,13 +115,15 @@ conan -s <socket path> \
 | Key                   | Action                                                                      |
 | --------------------- | --------------------------------------------------------------------------- |
 | `Tab`                 | Switches between Contact and Chats                                          |
-| `j`, `k`,`Up`, `Down` | Movement across Contacts                                                    |
+| `j`/`k`               | Navigate across contact list                                                |
+| `Up`/`Down`           | Navigate contacts (Contact tab) / scroll chat (Chat tab)                    |
 | `a`                   | Add new Peer                                                                |
 | `r`                   | Rename Peer                                                                 |
 | `d`                   | Delete Contact                                                              |
-| `i`                   | Enter Insert Mode (beta)                                                    |
-| `q`                   | Quit Conan                                                                  |
+| `q`                   | Quit Conan (With confirmation)                                              |
 | `Enter`               | Connects Contact, Send Messages, Affirm Input and Confirmation Screens etc. |
+| `Esc`                 | Return to contact list from chat                                            |
+| `Ctrl+C`              | Force quit from any screen                                                  |
 
 ## License
 

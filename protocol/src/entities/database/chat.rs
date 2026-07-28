@@ -93,9 +93,6 @@ impl ChatData for Connection {
     }
 
     fn list_chat_from(&self, peer_id: u8, limit: u8) -> Result<Vec<Chat>, Box<dyn Error>> {
-        if peer_id == 1 {
-            return Ok(vec![]);
-        }
         let mut stmt = self.prepare(
             "
                         SELECT * FROM chat

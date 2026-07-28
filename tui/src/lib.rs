@@ -50,6 +50,7 @@ pub struct App {
     pub contact_idx: ListState,
     pub chats: Vec<Chat>,
     pub chat_buf: String,
+    pub chat_scroll: usize,
     pub sender: broadcast::Sender<IPCCmd>,
     pub receiver: broadcast::Receiver<IPCCmd>,
 }
@@ -99,6 +100,7 @@ impl App {
             contact_idx: ListState::default(),
             chats: vec![],
             chat_buf: String::new(),
+            chat_scroll: 0,
             active_screen: Screen::None,
             running: true,
             time,
@@ -159,6 +161,7 @@ impl App {
             self.manage_keys().await?;
             self.manage_ipc().await?;
         }
+        crossterm::terminal::disable_raw_mode()?;
         terminal.clear()?;
         Ok(())
     }

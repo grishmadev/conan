@@ -4,7 +4,7 @@ use ratatui::{
     layout::{HorizontalAlignment, Rect},
     style::{Color, Style},
     symbols::border,
-    text::Line,
+    text::{Line, Span},
     widgets::{Block, Borders, List, ListDirection, ListItem},
 };
 
@@ -27,22 +27,39 @@ impl MainComponents for App {
             .borders(Borders::ALL)
             .border_set(border::ROUNDED)
             .title_top(Line::from(" Chat ").alignment(HorizontalAlignment::Center))
-            .style(chat_style);
+            .border_style(chat_style); // apply style only to the border and title, not the inner content
         if self.contact_idx.selected().is_none() {
             let line = Line::from("Select Contact to Start Chatting...").centered();
             let line_area = chat_block.inner(area);
             f.render_widget(line, line_area);
         }
-        let chats = self
+        let chats: Vec<ListItem<'_>> = self
             .chats
             .iter()
             .map(|c| {
-                let sub = if c.sender_id == 1 { "you" } else { "they" };
-                format!("{} - {}", sub, c.data)
+                let (label, style) = if c.sender_id == 1 {
+                    ("you", Style::new().green())
+                } else {
+                    ("they", Style::new().cyan())
+                };
+                let time = &c.time[11..16];
+                let line = Line::from(vec![
+                    Span::styled(format!("{label:>5} "), style),
+                    Span::styled(format!("{time} "), Style::new().dark_gray()),
+                    Span::raw(&c.data),
+                ]);
+                ListItem::new(line)
             })
-            .collect::<Vec<_>>();
-        let chats = List::new(chats).direction(ListDirection::BottomToTop);
+            .collect();
         let chats_area = chat_block.inner(area);
+        let total = chats.len();
+        let visible = chats_area.height as usize;
+        let max_scroll = total.saturating_sub(visible);
+        let scroll = self.chat_scroll.min(max_scroll);
+        self.chat_scroll = scroll;
+        let visible_chats: Vec<ListItem<'_>> =
+            chats.into_iter().skip(scroll).take(visible).collect();
+        let chats = List::new(visible_chats).direction(ListDirection::BottomToTop);
         f.render_widget(chats, chats_area);
         f.render_widget(chat_block, area);
     }

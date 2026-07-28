@@ -22,6 +22,14 @@ impl Keys for App {
         if event::poll(Duration::from_millis(10))?
             && let Event::Key(key) = event::read()?
         {
+            if key.code == KeyCode::Char('c')
+                && key
+                    .modifiers
+                    .contains(crossterm::event::KeyModifiers::CONTROL)
+            {
+                self.running = false;
+                return Ok(());
+            }
             match self.active_screen {
                 Screen::None => {
                     self.handle_none_screen(key).await?;
@@ -50,7 +58,9 @@ impl Keys for App {
                 }
             }
             KeyCode::Char('d') if matches!(self.tab, Tab::Contact) => {
-                if self.contact_idx.selected() == Some(0) {
+                if let Some(peer) = self.current_contact()
+                    && peer.id == 1
+                {
                     self.notification = Some(("Cannot delete Self".into(), Instant::now()));
                     return Ok(());
                 }
@@ -88,12 +98,7 @@ impl Keys for App {
                     mode: InputMode::NewPeer,
                 }
             }
-            KeyCode::Char('i') => {
-                if self.mode == Mode::Normal && self.tab == Tab::Chat {
-                    self.mode = Mode::Insert { cursor_pos: 0 };
-                }
-            }
-            KeyCode::Char('j') | KeyCode::Down => {
+            KeyCode::Char('j') => {
                 if self.tab == Tab::Contact {
                     if let Some(idx) = self.contact_idx.selected()
                         && idx == self.contacts.len() - 1
@@ -104,7 +109,7 @@ impl Keys for App {
                     }
                 }
             }
-            KeyCode::Char('k') | KeyCode::Up => {
+            KeyCode::Char('k') => {
                 if self.tab == Tab::Contact {
                     if let Some(idx) = self.contact_idx.selected()
                         && idx == 0
@@ -124,13 +129,6 @@ impl Keys for App {
                     mode: ConfirmMode::Exit,
                 };
             }
-            // KeyCode::Backspace if key.modifiers == KeyModifiers::CONTROL => {
-            //     if let Mode::Insert { ref mut cursor_pos } = self.mode {
-            //         while *cursor_pos > 0 && self.chat_buf.remove(*cursor_pos) != ' ' {
-            //             *cursor_pos -= 1;
-            //         }
-            //     }
-            // }
             KeyCode::Backspace => {
                 if let Mode::Insert { ref mut cursor_pos } = self.mode
                     && *cursor_pos > 0
@@ -159,9 +157,17 @@ impl Keys for App {
                 };
                 match self.tab {
                     Tab::Contact => {
-                        if self.contact_idx.selected() == Some(0) {
-                            self.notification =
-                                Some(("Cannot connect to self.".into(), Instant::now()));
+                        if let Some(current_peer) = self.current_contact()
+                            && current_peer.id == 1
+                        {
+                            // Self: we don't need loading screen, just load the chat
+                            #[allow(clippy::cast_possible_truncation)]
+                            self.send(IPCCmd::ChatList {
+                                peer_id: id as u8,
+                                msg_amount: 50,
+                            })
+                            .await?;
+                            self.next_tab();
                             return Ok(());
                         }
                         self.active_screen = Screen::LoadingScreen {
@@ -176,33 +182,33 @@ impl Keys for App {
                         })
                         .await?;
                     }
-                    Tab::Chat => match self.mode {
-                        Mode::Normal => {
-                            #[allow(clippy::cast_possible_truncation)]
-                            self.send(IPCCmd::Text(id as u8, self.chat_buf.trim().into()))
-                                .await?;
-                            let Some(selected) = self.contact_idx.selected() else {
-                                println!("No chat selected.");
-                                return Ok(());
-                            };
-                            let Some(current_peer) = self.contacts.get(selected) else {
-                                println!("Peer not found.");
-                                return Ok(());
-                            };
-                            if !current_peer.connected {
-                                self.notification =
-                                    Some(("Contact not connected.".into(), Instant::now()));
-                                return Ok(());
-                            }
-                            let chat = Chat::chat_to_send(&self.chat_buf, current_peer.id);
-                            self.chats.push(chat);
-                            self.chat_buf = String::new();
+                    Tab::Chat => {
+                        if self.chat_buf.trim().is_empty() {
+                            return Ok(()); // prevent empty messages
                         }
-                        Mode::Insert { ref mut cursor_pos } => {
-                            self.chat_buf.insert(*cursor_pos, '\n');
-                            *cursor_pos += 1;
+                        #[allow(clippy::cast_possible_truncation)]
+                        self.send(IPCCmd::Text(id as u8, self.chat_buf.trim().into()))
+                            .await?;
+                        let Some(selected) = self.contact_idx.selected() else {
+                            println!("No chat selected.");
+                            return Ok(());
+                        };
+                        let Some(current_peer) = self.contacts.get(selected) else {
+                            println!("Peer not found.");
+                            return Ok(());
+                        };
+                        if !current_peer.connected && current_peer.id != 1 {
+                            self.notification =
+                                Some(("Contact not connected.".into(), Instant::now()));
+                            return Ok(());
                         }
-                    },
+                        let chat = Chat::chat_to_send(&self.chat_buf, current_peer.id);
+                        self.chats.push(chat);
+                        self.chat_buf = String::new();
+                        if let Mode::Insert { ref mut cursor_pos } = self.mode {
+                            *cursor_pos = 0;
+                        }
+                    }
                     Tab::None => {}
                 }
             }
@@ -221,8 +227,44 @@ impl Keys for App {
                 }
             }
             KeyCode::Esc => {
-                self.mode = Mode::Normal;
+                // Return to contact list from chat
+                if self.tab == Tab::Chat {
+                    self.tab = Tab::Contact;
+                    self.mode = Mode::Normal;
+                }
             }
+            KeyCode::Down => match self.tab {
+                Tab::Contact => {
+                    if let Some(idx) = self.contact_idx.selected()
+                        && idx == self.contacts.len() - 1
+                    {
+                        self.contact_idx.select_first();
+                    } else {
+                        self.contact_idx.select_next();
+                    }
+                }
+                Tab::Chat => {
+                    self.chat_scroll = self.chat_scroll.saturating_sub(5);
+                }
+                _ => {}
+            },
+            KeyCode::Up => match self.tab {
+                Tab::Contact => {
+                    if let Some(idx) = self.contact_idx.selected()
+                        && idx == 0
+                    {
+                        if let Some(idx) = self.contact_idx.selected_mut() {
+                            *idx = self.contacts.len() - 1;
+                        }
+                    } else {
+                        self.contact_idx.select_previous();
+                    }
+                }
+                Tab::Chat => {
+                    self.chat_scroll = self.chat_scroll.saturating_add(5);
+                }
+                _ => {}
+            },
             _ => {}
         }
         Ok(())
@@ -310,7 +352,6 @@ impl Keys for App {
             KeyCode::Enter => match mode {
                 ConfirmMode::Exit => {
                     if *yes_selected {
-                        crossterm::terminal::disable_raw_mode()?;
                         self.running = false;
                     }
                     self.active_screen = Screen::None;

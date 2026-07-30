@@ -47,6 +47,7 @@ pub struct App {
     pub running: bool,
     pub time: Instant,
     pub contacts: Vec<Peer>,
+    pub groups: Vec<String>,
     pub contact_idx: ListState,
     pub chats: Vec<Chat>,
     pub chat_buf: String,
@@ -97,6 +98,7 @@ impl App {
             notification: None,
             stream,
             contacts: vec![],
+            groups: vec![],
             contact_idx: ListState::default(),
             chats: vec![],
             chat_buf: String::new(),
@@ -126,8 +128,10 @@ impl App {
         let sender = self.sender.clone();
         tokio::spawn(async move {
             loop {
-                _ = sender.send(IPCCmd::Tick);
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                _ = sender.send(IPCCmd::PeerList);
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                _ = sender.send(IPCCmd::GroupList);
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         });
         let sender = self.sender.clone();
@@ -149,13 +153,12 @@ impl App {
             })?;
             if let Ok(s) = self.receiver.try_recv() {
                 match s {
-                    IPCCmd::Tick => {
-                        self.send(IPCCmd::PeerList).await?;
-                    }
                     IPCCmd::PingChat => {
                         self.update_chats().await?;
                     }
-                    _ => {}
+                    cmd => {
+                        self.send(cmd).await?;
+                    }
                 }
             }
             self.manage_keys().await?;
@@ -206,6 +209,9 @@ impl App {
                 }
                 IPCRes::PeerList(peers) => {
                     self.contacts = peers;
+                }
+                IPCRes::GroupList(list) => {
+                    self.groups = list;
                 }
                 IPCRes::Text(idx, text) => {
                     let Some(cur_cont) = self.current_contact() else {
@@ -369,8 +375,9 @@ impl App {
     /// # Errors
     pub async fn update_chats(&mut self) -> Result<(), Box<dyn Error>> {
         let abs_cur_idx = self.contact_idx.selected();
-        if let Some(cur_idx) = abs_cur_idx {
-            let peer = &self.contacts[cur_idx];
+        if let Some(cur_idx) = abs_cur_idx
+            && let Some(peer) = self.contacts.get(cur_idx)
+        {
             #[allow(clippy::cast_possible_truncation)]
             self.send(IPCCmd::ChatList {
                 peer_id: peer.id as u8,

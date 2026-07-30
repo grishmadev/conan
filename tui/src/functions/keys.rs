@@ -115,27 +115,28 @@ impl Keys for App {
                 }
             }
             KeyCode::Char('j') => {
-                if self.tab == Tab::Contact {
-                    if let Some(idx) = self.contact_idx.selected()
-                        && idx == self.contacts.len() - 1
-                    {
-                        self.contact_idx.select_first();
-                    } else {
+                if self.tab == Tab::Contact
+                    && let Some(idx) = self.contact_idx.selected()
+                {
+                    if idx < self.contacts.len() - 1 {
                         self.contact_idx.select_next();
+                    } else if !self.groups.is_empty() {
+                        self.contact_idx.select(Some(idx + 1));
+                    } else {
+                        self.contact_idx.select_first();
                     }
+                } else {
+                    self.contact_idx.select_first();
                 }
             }
             KeyCode::Char('k') => {
-                if self.tab == Tab::Contact {
-                    if let Some(idx) = self.contact_idx.selected()
-                        && idx == 0
-                    {
-                        if let Some(idx) = self.contact_idx.selected_mut() {
-                            *idx = self.contacts.len() - 1;
-                        }
-                    } else {
-                        self.contact_idx.select_previous();
-                    }
+                if self.tab == Tab::Contact
+                    && let Some(idx) = self.contact_idx.selected_mut()
+                    && *idx == 0
+                {
+                    *idx = self.contacts.len() + self.groups.len() - 1;
+                } else {
+                    self.contact_idx.select_previous();
                 }
             }
             KeyCode::Char('q') => {

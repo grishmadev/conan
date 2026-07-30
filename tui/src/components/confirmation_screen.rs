@@ -4,7 +4,7 @@ use ratatui::{
     style::Stylize,
     symbols::border,
     text::{Line, Span},
-    widgets::{Block, Borders},
+    widgets::{Block, Borders, Clear},
 };
 
 use crate::App;
@@ -37,6 +37,7 @@ impl ConfirmScreen for App {
             .title_bottom(Line::default().spans(options).right_aligned());
         let line = Line::from(text).centered();
         let line_area = block.inner(con_area);
+        f.render_widget(Clear, con_area);
         f.render_widget(block, con_area);
         f.render_widget(line, line_area);
     }

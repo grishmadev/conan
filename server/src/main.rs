@@ -8,8 +8,8 @@ use conanprotocol::{
         },
         server::{manager::Manager, master::Master},
     },
-    msg::Msg,
-    operations::send,
+    mls::ConanGroup,
+    msg::{Msg, SlaveCmd},
 };
 use std::{
     error::Error,
@@ -60,12 +60,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     };
                     let chat = Chat::chat_to_send(&text, u32::from(idx));
                     manager.dbconn.insert_chat(chat)?;
-                    let encoded = Msg::Text(text).to_vec();
-                    let Some(ratchet) = target.ratchet_session.as_ref() else {
-                        println!("Ratchet session not established for peer {idx}.");
-                        continue;
-                    };
-                    send(&mut target.writer, encoded, Arc::clone(ratchet)).await?;
+                    let msg = Msg::Text(text);
+                    // let Some(ratchet) = target.ratchet_session.as_ref() else {
+                    //     println!("Ratchet session not established for peer {idx}.");
+                    //     continue;
+                    // };
+                    target.command_sender.send(SlaveCmd::Msg(msg)).unwrap();
                 }
                 IPCCmd::PeerList => {
                     let mut peers = manager.dbconn.list_all_peers()?;
@@ -95,6 +95,39 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     manager
                         .msg_sender
                         .send(IPCRes::ChatList { peer_id, chats })?;
+                }
+                IPCCmd::GroupList => {
+                    let groups = {
+                        let data = manager.groups.read().unwrap();
+                        data.iter()
+                            .map(|g| g.0.to_string())
+                            .collect::<Vec<String>>()
+                    };
+                    manager.msg_sender.send(IPCRes::GroupList(groups))?;
+                }
+
+                IPCCmd::NewGroup => {
+                    println!("creating new group.");
+                    let new_group = ConanGroup::build("new-group")?;
+                    let groups = Arc::clone(&manager.groups);
+                    let mut groups = groups.write().unwrap();
+                    groups.insert(0, new_group);
+                }
+                IPCCmd::AddToGroup(idx) => {
+                    println!("adding {idx} to group 0");
+                    let peers = Arc::clone(&manager.peers);
+                    let mut peers = peers.write().unwrap();
+                    let Some(target) = peers.get_mut(&(idx as u8)) else {
+                        println!("Cannot find target peer.");
+                        continue;
+                    };
+                    let groups = Arc::clone(&manager.groups);
+                    let mut groups = groups.write().unwrap();
+                    let Some(group) = groups.get_mut(&0) else {
+                        println!("Cannot get group.");
+                        continue;
+                    };
+                    group.convert_to_group(target)?;
                 }
                 _ => unimplemented!(),
             }

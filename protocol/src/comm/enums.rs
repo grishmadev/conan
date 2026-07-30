@@ -17,6 +17,9 @@ pub enum IPCCmd {
     Tick,
     RenamePeer(u8, String),
     DeletePeer(u32),
+    NewGroup,
+    AddToGroup(u32),
+    GroupList,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Serialize, Deserialize)]
@@ -32,6 +35,7 @@ pub enum IPCRes {
     Tock,
     DeletedPeer(u32),
     RenamedPeer(u32),
+    GroupList(Vec<String>),
 }
 
 /// # Panics

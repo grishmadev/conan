@@ -1,4 +1,5 @@
 use bincode::config;
+use openmls::prelude::Welcome;
 use serde::{Deserialize, Serialize};
 
 use crate::comm::enums::IPCRes;
@@ -32,8 +33,9 @@ pub enum Msg {
     PublicKey([u8; 32]),
     SignedAndPublicKey(Vec<u8>, [u8; 32], [u8; 32]),
     Verified,
-    Begin,
-    End,
+    Convert,
+    Welcome(Welcome),
+    GroupSuccess,
 }
 
 impl Msg {
@@ -62,4 +64,11 @@ impl From<&str> for Msg {
 pub enum Mode {
     Normal,
     Insert { cursor_pos: usize },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum SlaveCmd {
+    Msg(Msg),
+    GroupSuccess,
 }

@@ -1,4 +1,4 @@
-use crate::crypto::ratchet::RatchetSession;
+use crate::{crypto::ratchet::RatchetSession, msg::SlaveCmd, operations::send};
 use arti_client::DataStream;
 use rand::random_range;
 use rusqlite::Connection;
@@ -20,8 +20,10 @@ use crate::{
 
 pub struct Slave {
     pub id: u8,
-    pub reader: Option<ReadHalf<DataStream>>,
-    pub writer: WriteHalf<DataStream>,
+    reader: Option<ReadHalf<DataStream>>,
+    pub writer: Option<WriteHalf<DataStream>>,
+    pub command_sender: broadcast::Sender<SlaveCmd>,
+    command_receiver: Option<broadcast::Receiver<SlaveCmd>>,
     pub response_sender: broadcast::Sender<(u8, Internal)>,
     /// Double Ratchet session for encrypted communication.
     /// `None` before handshake completes, `Some` after.
@@ -32,8 +34,31 @@ pub struct Slave {
 }
 
 impl Slave {
-    /// Spawns a tokio thread that reads encrypted messages and forwards to response channel.
-    ///
+    pub fn build(
+        id: u8,
+        reader: ReadHalf<DataStream>,
+        writer: WriteHalf<DataStream>,
+        service: Arc<RunningOnionService>,
+        config: ConanConfig,
+        msg_sender: broadcast::Sender<IPCRes>,
+        response_sender: broadcast::Sender<(u8, Internal)>,
+        ratchet_session: Option<Arc<RwLock<RatchetSession>>>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let cmd = tokio::sync::broadcast::channel::<SlaveCmd>(10);
+
+        Ok(Self {
+            id,
+            reader: Some(reader),
+            writer: Some(writer),
+            command_sender: cmd.0,
+            command_receiver: Some(cmd.1),
+            service,
+            config,
+            msg_sender,
+            response_sender,
+            ratchet_session,
+        })
+    }
     /// # Errors
     /// # Panics
     pub fn spawn_communication(&mut self) -> Result<(), Box<dyn Error>> {
@@ -72,6 +97,26 @@ impl Slave {
                 }
             }
         });
+        let mut cmd_rec = self.command_receiver.take().unwrap();
+        let mut writer = self.writer.take().unwrap();
+        let ratchet = Arc::clone(self.ratchet_session.as_ref().unwrap());
+        tokio::spawn(async move {
+            let ratchet = Arc::clone(&ratchet);
+            loop {
+                if let Ok(data) = cmd_rec.recv().await {
+                    let mut cmd = None;
+                    match data {
+                        SlaveCmd::Msg(msg) => {
+                            cmd = Some(msg);
+                        }
+                        _ => {}
+                    }
+                    if let Some(cmd) = cmd {
+                        send(&mut writer, cmd, &ratchet).await.unwrap();
+                    }
+                }
+            }
+        });
         Ok(())
     }
 
@@ -90,7 +135,7 @@ impl Slave {
         let (session, _remote_hsid) = listener_actor(
             self.config.arti_key_store.clone(),
             reader,
-            &mut self.writer,
+            self.writer.as_mut().unwrap(),
             &mut remote_onion_key,
             local_hsid,
         )

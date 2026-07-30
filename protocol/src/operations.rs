@@ -333,12 +333,13 @@ where
 /// # Errors
 pub async fn send<T>(
     writer: &mut WriteHalf<T>,
-    msg: Vec<u8>,
-    ratchet: Arc<tokio::sync::RwLock<RatchetSession>>,
+    msg: Msg,
+    ratchet: &Arc<tokio::sync::RwLock<RatchetSession>>,
 ) -> Result<(), Box<dyn Error>>
 where
     T: AsyncReadExt + AsyncWriteExt,
 {
+    let msg = msg.to_vec();
     let ratchet_msg = {
         let mut ratchet = ratchet.write().await;
         ratchet.encrypt(&msg, b"")?

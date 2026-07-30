@@ -30,9 +30,9 @@ use tokio::{
 
 use crate::{
     components::{
-        confirmation_screen::ConfirmScreen, loading_screen::LoadingScreen,
-        main_component::MainComponents, new_peer::InputScreen, notification::Notification,
-        welcome::WelcomeScreen,
+        command_pallete::CommandPallete, confirmation_screen::ConfirmScreen,
+        loading_screen::LoadingScreen, main_component::MainComponents, new_peer::InputScreen,
+        notification::Notification, welcome::WelcomeScreen,
     },
     functions::{ConfirmMode, InputMode, LoadingMode, keys::Keys},
     matches::{Screen, Tab},
@@ -324,6 +324,13 @@ impl App {
                 ..
             } => {
                 self.render_confirmation(f, prompt, yes_selected);
+            }
+            Screen::CommandPalette {
+                ref text,
+                ref cursor_pos,
+                ..
+            } => {
+                self.render_command_palette(f, text, cursor_pos);
             }
         }
     }

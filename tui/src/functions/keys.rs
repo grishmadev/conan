@@ -1,12 +1,12 @@
 use std::time::{Duration, Instant};
 
 use conanprotocol::{comm::enums::IPCCmd, entities::database::chat::Chat, msg::Mode};
-use crossterm::event::{self, Event, KeyCode, KeyEvent};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 
 use crate::{
     App,
     functions::{ConfirmMode, InputMode, LoadingMode, terminal_control::TerminalControl},
-    matches::{Screen, Tab},
+    matches::{PaletteCommand, Screen, Tab},
 };
 
 pub trait Keys {
@@ -15,6 +15,10 @@ pub trait Keys {
     fn handle_input_screen(&mut self, key: KeyEvent) -> impl Future<Output = std::io::Result<()>>;
     fn handle_confirm_screen(&mut self, key: KeyEvent)
     -> impl Future<Output = std::io::Result<()>>;
+    fn handle_command_palette(
+        &mut self,
+        key: KeyEvent,
+    ) -> impl Future<Output = std::io::Result<()>>;
 }
 
 impl Keys for App {
@@ -41,6 +45,9 @@ impl Keys for App {
                 Screen::ConfirmScreen { .. } => {
                     self.handle_confirm_screen(key).await?;
                 }
+                Screen::CommandPalette { .. } => {
+                    self.handle_command_palette(key).await?;
+                }
             }
         }
         Ok(())
@@ -55,6 +62,15 @@ impl Keys for App {
                 if let Mode::Insert { ref mut cursor_pos } = self.mode {
                     self.chat_buf.insert(*cursor_pos, ch);
                     *cursor_pos += 1;
+                }
+            }
+            KeyCode::Char('p') if key.modifiers == KeyModifiers::CONTROL => {
+                if self.active_screen == Screen::None {
+                    self.active_screen = Screen::CommandPalette {
+                        options: vec![],
+                        text: String::new(),
+                        cursor_pos: 0,
+                    };
                 }
             }
             KeyCode::Char('d') if matches!(self.tab, Tab::Contact) => {
@@ -368,6 +384,71 @@ impl Keys for App {
                         self.send(cmd).await?;
                     }
                     self.active_screen = Screen::None;
+                }
+            },
+            _ => {}
+        }
+        Ok(())
+    }
+
+    async fn handle_command_palette(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+    ) -> std::io::Result<()> {
+        let Screen::CommandPalette {
+            ref mut text,
+            ref mut cursor_pos,
+            ..
+        } = self.active_screen
+        else {
+            return Ok(());
+        };
+        match key.code {
+            KeyCode::Char(ch) => {
+                text.insert(*cursor_pos, ch);
+                *cursor_pos += 1;
+            }
+            KeyCode::Backspace => {
+                if *cursor_pos > 0 {
+                    *cursor_pos -= 1;
+                    text.remove(*cursor_pos);
+                }
+            }
+            KeyCode::Delete => {
+                if (0..text.len()).contains(cursor_pos) {
+                    text.remove(*cursor_pos);
+                }
+            }
+            KeyCode::Left => {
+                if *cursor_pos > 0 {
+                    *cursor_pos -= 1;
+                }
+            }
+            KeyCode::Right => {
+                if text.len() > *cursor_pos {
+                    *cursor_pos += 1;
+                }
+            }
+            KeyCode::Esc => {
+                self.active_screen = Screen::None;
+            }
+            KeyCode::Enter => match PaletteCommand::try_from(text) {
+                Ok(cmd) => {
+                    match cmd {
+                        PaletteCommand::NewGroup => {
+                            self.send(IPCCmd::NewGroup).await?;
+                        }
+                        PaletteCommand::AddToGroup => {
+                            let Some(curcon) = self.current_contact() else {
+                                return Ok(());
+                            };
+                            self.send(IPCCmd::AddToGroup(curcon.id)).await?;
+                        }
+                    }
+                    self.active_screen = Screen::None;
+                }
+                Err(_) => {
+                    self.notification = Some(("Invalid Command".to_string(), Instant::now()));
                 }
             },
             _ => {}

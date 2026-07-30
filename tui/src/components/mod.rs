@@ -1,3 +1,4 @@
+pub mod command_pallete;
 pub mod confirmation_screen;
 pub mod loading_screen;
 pub mod main_component;

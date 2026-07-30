@@ -16,6 +16,24 @@ pub enum TuiCommand {
     Other(KeyEvent),
 }
 
+pub enum PaletteCommand {
+    AddToGroup,
+    NewGroup,
+}
+
+impl PaletteCommand {
+    pub fn try_from(value: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let val = match value {
+            "newgroup" => PaletteCommand::NewGroup,
+            "addtogroup" => PaletteCommand::AddToGroup,
+            _ => {
+                return Err("No such Enum".into());
+            }
+        };
+        Ok(val)
+    }
+}
+
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Screen {
@@ -33,6 +51,11 @@ pub enum Screen {
         prompt: String,
         yes_selected: bool,
         mode: ConfirmMode,
+    },
+    CommandPalette {
+        text: String,
+        cursor_pos: usize,
+        options: Vec<String>,
     },
     None,
 }

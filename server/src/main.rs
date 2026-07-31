@@ -108,7 +108,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                 IPCCmd::NewGroup => {
                     println!("creating new group.");
-                    let new_group = ConanGroup::build("new-group")?;
+                    let new_group = ConanGroup::build("my-group")?;
                     let groups = Arc::clone(&manager.groups);
                     let mut groups = groups.write().unwrap();
                     groups.insert(0, new_group);

@@ -1,5 +1,5 @@
 use bincode::config;
-use openmls::prelude::Welcome;
+use openmls::prelude::{RatchetTreeIn, Welcome};
 use serde::{Deserialize, Serialize};
 
 use crate::comm::enums::IPCRes;
@@ -34,8 +34,12 @@ pub enum Msg {
     SignedAndPublicKey(Vec<u8>, [u8; 32], [u8; 32]),
     Verified,
     Convert,
-    Welcome(Welcome),
+    Welcome(Welcome, RatchetTreeIn),
     GroupSuccess,
+    KeyPackage(Vec<u8>),
+    GroupError(String),
+    GroupVerified,
+    GroupMessage(Vec<u8>),
 }
 
 impl Msg {

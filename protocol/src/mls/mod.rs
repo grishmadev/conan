@@ -1,10 +1,10 @@
-use std::error::Error;
+use std::{collections::HashSet, error::Error};
 
 use openmls::{
     group::{MlsGroup, MlsGroupCreateConfig, MlsGroupJoinConfig, StagedWelcome},
     prelude::{
         BasicCredential, Ciphersuite, CredentialWithKey, KeyPackage, KeyPackageBundle,
-        KeyPackageNewError, LeafNodeIndex, MlsMessageOut, SignatureScheme, Welcome,
+        KeyPackageNewError, LeafNodeIndex, MlsMessageOut, RatchetTreeIn, SignatureScheme, Welcome,
         group_info::GroupInfo,
     },
 };
@@ -19,6 +19,7 @@ use crate::{
 #[derive(Debug)]
 pub struct ConanGroup {
     pub group: MlsGroup,
+    pub members: HashSet<u8>,
     pub provider: OpenMlsRustCrypto,
     pub signer: SignatureKeyPair,
     pub storage: MemoryStorage,
@@ -48,6 +49,7 @@ impl ConanGroup {
 
         Ok(Self {
             group,
+            members: HashSet::new(),
             provider,
             signer,
             storage,
@@ -98,22 +100,20 @@ impl ConanGroup {
 
     /// Sets Group from `StagedWelcome`
     /// # Errors
-    pub fn join_group(welcome: Welcome) -> Result<Self, Box<dyn Error>> {
-        let provider = OpenMlsRustCrypto::default();
+    pub fn join_group(
+        provider: &OpenMlsRustCrypto,
+        welcome: Welcome,
+        tree: RatchetTreeIn,
+    ) -> Result<MlsGroup, Box<dyn Error>> {
         let staged_join = StagedWelcome::new_from_welcome(
-            &provider,
+            provider,
             &MlsGroupJoinConfig::default(),
             welcome,
-            None,
+            Some(tree),
         )?;
-        let group = staged_join.into_group(&provider)?;
+        let group = staged_join.into_group(provider)?;
 
-        Ok(Self {
-            group,
-            provider,
-            signer: SignatureKeyPair::new(SignatureScheme::ED25519)?,
-            storage: MemoryStorage::default(),
-        })
+        Ok(group)
     }
 
     pub fn convert_to_group(&self, slave: &mut Slave) -> Result<(), Box<dyn Error>> {

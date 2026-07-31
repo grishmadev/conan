@@ -3,7 +3,7 @@ use ratatui::{
     layout::Constraint,
     symbols::border,
     text::Line,
-    widgets::{Block, Borders},
+    widgets::{Block, Borders, Clear},
 };
 
 use crate::App;
@@ -23,6 +23,7 @@ impl LoadingScreen for App {
             .border_set(border::ROUNDED);
         let text = Line::from(text).centered();
         let text_area = block.inner(centered_rect);
+        f.render_widget(Clear, centered_rect);
         f.render_widget(block, centered_rect);
         f.render_widget(text, text_area);
     }

@@ -3,7 +3,7 @@ use ratatui::{
     layout::Rect,
     symbols::border,
     text::Line,
-    widgets::{Block, Borders},
+    widgets::{Block, Borders, Clear},
 };
 
 use crate::App;
@@ -28,6 +28,7 @@ impl Notification for App {
             .borders(Borders::ALL);
         let line = Line::from(text).centered();
         let line_area = block.inner(notif_area);
+        f.render_widget(Clear, notif_area);
         f.render_widget(block, notif_area);
         f.render_widget(line, line_area);
     }

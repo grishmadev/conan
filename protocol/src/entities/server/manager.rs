@@ -1,10 +1,5 @@
 use arti_client::{BootstrapBehavior, TorClient, TorClientConfig, config::CfgPath};
 use futures::{StreamExt, stream::BoxStream};
-use openmls::prelude::{
-    BasicCredential, CredentialWithKey, DeserializeBytes, KeyPackage, MlsMessageBodyOut,
-    MlsMessageIn, ProcessedMessageContent, RatchetTreeIn, tls_codec::Serialize,
-};
-use rand::random_range;
 use rusqlite::Connection;
 use safelog::DisplayRedacted;
 use std::{
@@ -21,23 +16,17 @@ use tor_cell::relaycell::msg::Connected;
 use tor_hsservice::{HsNickname, OnionServiceConfig, RendRequest, RunningOnionService};
 
 use crate::{
-    comm::{
-        enums::{IPCRes, from_bytes, to_bytes},
-        notification::ConanNotif,
-    },
+    comm::enums::IPCRes,
     config::ConanConfig,
     database::DBConnection,
     debug,
     entities::{
-        database::{
-            chat::{Chat, ChatData},
-            peer::{Peer, PeerData},
-        },
-        server::slave::Slave,
+        database::peer::{Peer, PeerData},
+        server::{manager_assistant::CommandHandler, slave::Slave},
     },
     extras::generate_name,
     mls::ConanGroup,
-    msg::{Internal, Msg, PeerStatus, SlaveCmd},
+    msg::{Internal, Msg, PeerStatus},
     operations::dialer_actor,
 };
 
@@ -209,6 +198,8 @@ impl Manager {
             }
         });
 
+        tokio::spawn(async move {});
+
         Ok(())
     }
 
@@ -304,7 +295,7 @@ impl Manager {
             };
             let known = dbconn.get_peer_from_addr(&peer_addr.0).unwrap();
             let trans = dbconn.transaction().unwrap();
-            let name = generate_name(random_range(3..10));
+            let name = generate_name(3..10);
             let idx = if let Some(known_peer) = known {
                 known_peer.id
             } else {
@@ -349,199 +340,29 @@ impl Manager {
         let peers = Arc::clone(&self.peers);
         let groups = Arc::clone(&self.groups);
         let dbconn = Connection::open(&self.config.db_path)?;
-        let msg_sen = self.msg_sender.clone();
         self.server_ready.store(true, Ordering::SeqCst);
         tokio::spawn(async move {
+            let cmdhandler = CommandHandler::new(peers, groups, dbconn, sen);
             while let Ok((idx, internal)) = rec.recv().await {
-                let mut res = None;
-                let idx_u32 = u32::from(idx);
-                match internal {
+                let res = match internal {
                     Internal::Msg(msg) => match msg {
-                        Msg::Text(text) => {
-                            let chat = Chat::chat_to_rec(&text, idx_u32);
-                            for _ in 0..3 {
-                                if let Err(e) = dbconn.insert_chat(chat.clone()) {
-                                    println!("Error inserting chat: {e}");
-                                } else {
-                                    break;
-                                }
-                            }
-                            res = Some(IPCRes::Text(idx, text.clone()));
-                            let Ok(Some(target)) = dbconn.get_peer_from_id(idx_u32) else {
-                                _ = msg_sen
-                                    .send(IPCRes::Error("Cannot find peer in database.".into()));
-                                continue;
-                            };
-                            _ = ConanNotif::Text(target.name, text).notify().await;
-                        }
-                        Msg::Verified => {
-                            res = Some(IPCRes::Notification("Verified.".into()));
-                            _ = ConanNotif::Sys("Peer Verified".into()).notify().await;
-                        }
-                        Msg::Convert => {
-                            println!("got convert to group");
-                            let new_group = ConanGroup::build("my-group").unwrap();
-                            let credential_with_key = CredentialWithKey {
-                                credential: BasicCredential::new("Conan".into()).into(),
-                                signature_key: new_group.signer.public().into(),
-                            };
-                            let key_package = KeyPackage::builder()
-                                .build(
-                                    new_group.group.ciphersuite(),
-                                    &new_group.provider,
-                                    &new_group.signer,
-                                    credential_with_key,
-                                )
-                                .unwrap();
-                            let Ok(mut peers) = peers.write() else {
-                                continue;
-                            };
-                            let Some(peer) = peers.get_mut(&idx) else {
-                                continue;
-                            };
-
-                            let key_package_ser = to_bytes(key_package.key_package());
-                            peer.command_sender
-                                .send(SlaveCmd::Msg(Msg::KeyPackage(key_package_ser)))
-                                .unwrap();
-                            let mut groups = groups.write().unwrap();
-                            groups.insert(0, new_group);
-                        }
-                        Msg::KeyPackage(package) => {
-                            println!("got keypackage");
-                            let Ok(key_package) = from_bytes::<KeyPackage>(&package) else {
-                                continue;
-                            };
-                            let Ok(mut groups) = groups.write() else {
-                                continue;
-                            };
-                            let Some(group) = groups.get_mut(&0) else {
-                                continue;
-                            };
-                            let (_commit, welcome) = group.add_members(&key_package).unwrap();
-
-                            let Ok(mut peers) = peers.write() else {
-                                continue;
-                            };
-                            let Some(peer) = peers.get_mut(&idx) else {
-                                continue;
-                            };
-                            let MlsMessageBodyOut::Welcome(welcome) = welcome.body().clone() else {
-                                println!("No Welcome found. Ignoring.");
-                                continue;
-                            };
-                            let tree: RatchetTreeIn = group.group.export_ratchet_tree().into();
-
-                            peer.command_sender
-                                .send(SlaveCmd::Msg(Msg::Welcome(welcome, tree)))
-                                .unwrap();
-                        }
+                        Msg::Text(text) => cmdhandler.handle_msg_text(idx, text),
+                        Msg::Verified => cmdhandler.handle_msg_verified(),
+                        Msg::Convert(name) => cmdhandler.handle_msg_convert(idx, name),
+                        Msg::KeyPackage(package) => cmdhandler.handle_msg_keypackage(idx, package),
                         Msg::Welcome(welcome, tree) => {
-                            println!("group welcome");
-                            let Ok(mut peers) = peers.write() else {
-                                continue;
-                            };
-                            let Some(peer) = peers.get_mut(&idx) else {
-                                continue;
-                            };
-                            if let Ok(mut groups) = groups.write() {
-                                let group = groups.get_mut(&0).unwrap();
-                                let mls_group =
-                                    ConanGroup::join_group(&group.provider, welcome, tree).unwrap();
-                                group.group = mls_group;
-                                peer.command_sender
-                                    .send(SlaveCmd::Msg(Msg::GroupVerified))
-                                    .unwrap();
-                                group.members.insert(peer.id);
-                            } else {
-                                peer.command_sender
-                                    .send(SlaveCmd::Msg(Msg::GroupError(
-                                        "Some Error Occured while joining group.".to_string(),
-                                    )))
-                                    .unwrap();
-                            }
+                            cmdhandler.handle_msg_welcome(idx, welcome, tree)
                         }
-                        Msg::GroupError(err) => {
-                            let Ok(mut groups) = groups.write() else {
-                                continue;
-                            };
-                            let Some(group) = groups.get_mut(&0) else {
-                                continue;
-                            };
-                            group.group.merge_pending_commit(&group.provider).unwrap();
-                            _ = ConanNotif::Sys(err);
-                        }
-                        Msg::GroupVerified => {
-                            println!("group verified");
-                            let Ok(mut groups) = groups.write() else {
-                                continue;
-                            };
-                            let Some(group) = groups.get_mut(&0) else {
-                                continue;
-                            };
-                            group.members.insert(idx);
-                            group.group.merge_pending_commit(&group.provider).unwrap();
-                            let text = b"Hello there";
-                            let Ok(mut peers) = peers.write() else {
-                                continue;
-                            };
-                            let members = group.members.iter().collect::<Vec<_>>();
-                            for idx in members {
-                                println!("member: {idx}");
-                                let Some(peer) = peers.get_mut(idx) else {
-                                    continue;
-                                };
-                                let message = group
-                                    .group
-                                    .create_message(&group.provider, &group.signer, text)
-                                    .unwrap();
-
-                                let message_ser = message.tls_serialize_detached().unwrap();
-                                peer.command_sender
-                                    .send(SlaveCmd::Msg(Msg::GroupMessage(message_ser)))
-                                    .unwrap();
-                            }
-                            _ = ConanNotif::Sys("Group Action Complete.".into());
-                        }
-                        Msg::GroupMessage(message) => {
-                            println!("got group message");
-                            let (message, _) =
-                                MlsMessageIn::tls_deserialize_bytes(&message).unwrap();
-                            let Ok(mut groups) = groups.write() else {
-                                continue;
-                            };
-                            let Some(group) = groups.get_mut(&0) else {
-                                continue;
-                            };
-                            let message = message.try_into_protocol_message().unwrap();
-                            let processed_message = group
-                                .group
-                                .process_message(&group.provider, message)
-                                .unwrap();
-                            let content = processed_message.into_content();
-                            if let ProcessedMessageContent::ApplicationMessage(mess) = content {
-                                let content = mess.into_bytes();
-                                let string = String::from_utf8_lossy(&content).to_string();
-                                println!("got: {string}");
-                            }
-                            group.group.merge_pending_commit(&group.provider).unwrap();
-                        }
+                        Msg::GroupError(err) => cmdhandler.handle_msg_group_error(err),
+                        Msg::GroupVerified => cmdhandler.handle_msg_group_verified(idx),
+                        Msg::GroupMessage(message) => cmdhandler.handle_group_message(message),
                         _ => unimplemented!(),
                     },
-                    Internal::RemovePeer(idx) => {
-                        if let Ok(mut guard) = peers.write()
-                            && let Some(conn) = guard.remove(&idx)
-                        {
-                            println!("Removing Connection: {}", conn.id);
-                            if let Ok(Some(peer)) = dbconn.get_peer_from_id(u32::from(conn.id)) {
-                                _ = ConanNotif::Sys(format!("{} disconnected.", peer.name));
-                            }
-                        }
-                    }
+                    Internal::RemovePeer(idx) => cmdhandler.remove_peer(idx),
                     _ => continue,
-                }
-                if let Some(msg) = res {
-                    _ = sen.send(msg);
+                };
+                if let Err(err) = res {
+                    eprintln!("Error in Msg: {err:?}");
                 }
             }
         });

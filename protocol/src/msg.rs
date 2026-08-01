@@ -33,7 +33,7 @@ pub enum Msg {
     PublicKey([u8; 32]),
     SignedAndPublicKey(Vec<u8>, [u8; 32], [u8; 32]),
     Verified,
-    Convert,
+    Convert(String),
     Welcome(Welcome, RatchetTreeIn),
     GroupSuccess,
     KeyPackage(Vec<u8>),

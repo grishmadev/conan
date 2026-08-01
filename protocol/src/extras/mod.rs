@@ -1,9 +1,12 @@
-use rand::random;
+use std::ops::Range;
+
+use rand::{random, random_range};
 
 /// # Panics
 /// Panics when String index is out of range.
 #[must_use]
-pub fn generate_name(len: u8) -> String {
+pub fn generate_name(range: Range<u8>) -> String {
+    let len = random_range(range);
     let vowels = [b'a', b'e', b'i', b'o', b'u'];
     let consonants: Vec<u8> = (b'a'..=b'z').filter(|c| !vowels.contains(c)).collect();
     let mut name = vec![];

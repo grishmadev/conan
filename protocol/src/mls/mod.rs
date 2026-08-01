@@ -13,6 +13,7 @@ use openmls_rust_crypto::{MemoryStorage, OpenMlsRustCrypto};
 
 use crate::{
     entities::server::slave::Slave,
+    extras::generate_name,
     msg::{Msg, SlaveCmd},
 };
 
@@ -78,18 +79,18 @@ impl ConanGroup {
     /// # Errors
     pub fn remove_members(
         &mut self,
-        idx: LeafNodeIndex,
+        idx: u32,
     ) -> Result<(MlsMessageOut, Option<GroupInfo>), Box<dyn Error>> {
-        let res = self
-            .group
-            .remove_members(&self.provider, &self.signer, &[idx])?;
+        let res =
+            self.group
+                .remove_members(&self.provider, &self.signer, &[LeafNodeIndex::new(idx)])?;
         self.group.merge_pending_commit(&self.provider)?;
         Ok((res.0, res.2))
     }
 
     /// Returns `KeyPackageBundle` from Group
     /// # Errors
-    pub fn key_package(&self, id: &str) -> Result<KeyPackageBundle, KeyPackageNewError> {
+    pub fn key_package_bundle(&self, id: &str) -> Result<KeyPackageBundle, KeyPackageNewError> {
         let cipher = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
         let credential_with_key = CredentialWithKey {
             credential: BasicCredential::new(id.into()).into(),
@@ -117,7 +118,10 @@ impl ConanGroup {
     }
 
     pub fn convert_to_group(&self, slave: &mut Slave) -> Result<(), Box<dyn Error>> {
-        slave.command_sender.send(SlaveCmd::Msg(Msg::Convert))?;
+        let name = generate_name(3..8);
+        slave
+            .command_sender
+            .send(SlaveCmd::Msg(Msg::Convert(name)))?;
         Ok(())
     }
 }

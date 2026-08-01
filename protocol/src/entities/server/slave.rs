@@ -148,7 +148,7 @@ impl Slave {
         let peer = if let Some(peer) = dbconn.get_peer_from_addr(&remote_hsid)? {
             peer
         } else {
-            let name = generate_name(random_range(4..10));
+            let name = generate_name(4..10);
             dbconn.insert_peer(Peer::build(&name, &remote_hsid))?
         };
         let name = peer.name;

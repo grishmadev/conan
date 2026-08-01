@@ -9,7 +9,7 @@ pub enum ConanNotif {
 impl ConanNotif {
     /// Used to push notifications to D-Bus
     /// # Errors
-    pub async fn notify(&self) -> Result<(), Box<dyn Error>> {
+    pub async fn notify_async(&self) -> Result<(), Box<dyn Error>> {
         match self {
             ConanNotif::Text(name, msg) => {
                 let mut notif = notify_rust::Notification::new();
@@ -24,6 +24,25 @@ impl ConanNotif {
                 notif.appname = "Conan".to_string();
                 let notif = notif.finalize();
                 notif.show_async().await?;
+            }
+        }
+        Ok(())
+    }
+    pub fn notify(&self) -> Result<(), Box<dyn Error>> {
+        match self {
+            ConanNotif::Text(name, msg) => {
+                let mut notif = notify_rust::Notification::new();
+                notif.body = msg.into();
+                notif.summary = name.into();
+                let notif = notif.finalize();
+                notif.show()?;
+            }
+            ConanNotif::Sys(msg) => {
+                let mut notif = notify_rust::Notification::new();
+                notif.body = msg.clone();
+                notif.appname = "Conan".to_string();
+                let notif = notif.finalize();
+                notif.show()?;
             }
         }
         Ok(())

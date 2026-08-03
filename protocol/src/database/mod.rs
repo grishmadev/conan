@@ -1,23 +1,76 @@
+use openmls_sqlite_storage::SqliteStorageProvider;
 use rusqlite::Connection;
-pub mod setup;
-pub struct DBConnection {
-    pub connection: Connection,
-}
 
-impl DBConnection {
-    /// Used to build a Connection thread to local sqlite Database
-    ///
-    /// # Errors
-    /// Might Error due to io error or from rusqlite crate
-    pub fn build(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(Self {
-            connection: Connection::open(path)?,
-        })
-    }
+use crate::extras::codec::BincodeCodec;
 
-    /// Directly Executes SQL commands
-    /// # Errors
-    pub fn execute(&self, query: &str) -> Result<usize, rusqlite::Error> {
-        self.connection.execute(query, ())
-    }
+/// # Errors
+pub fn setup_db(db_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let conn = Connection::open(db_path)?;
+    conn.execute("PRAGMA foreign_keys = ON;", ())?;
+
+    // create peers
+    conn.execute(
+        "
+        CREATE TABLE IF NOT EXISTS peer (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        address TEXT CHECK(address LIKE '%.onion' AND LENGTH(address) = 62),
+        is_friend BOOLEAN DEFAULT FALSE
+        );
+                ",
+        (),
+    )?;
+
+    // create chats
+    conn.execute(
+        "
+        CREATE TABLE IF NOT EXISTS chat (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sender_id INTEGER NOT NULL REFERENCES peer(id),
+        receiver_id INTEGER NOT NULL REFERENCES peer(id),
+        data TEXT NOT NULL,
+        TIME DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );",
+        (),
+    )?;
+
+    //create groups
+    conn.execute(
+        "
+        CREATE TABLE IF NOT EXISTS group (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id BLOB NOT NULL,
+            name TEXT
+        );",
+        (),
+    )?;
+
+    // create group chats
+    conn.execute(
+        "
+    CREATE TABLE IF NOT EXISTS group (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_id INTEGER NOT NULL REFERENCES group(id),
+        sender_id INTEGER NOT NULL REFERENCES group_peer(id),
+        data TEXT NOT NULL,
+        time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );",
+        (),
+    )?;
+
+    // create group_to_peer
+    conn.execute(
+        "
+        CREATE TABLE IF NOT EXISTS group_to_peer (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            peer_id INTEGER NOT NULL REFERENCES peer(id),
+            group_id INTEGER NOT NULL REFERENCES group(id),
+        );",
+        (),
+    )?;
+
+    let mut storage: SqliteStorageProvider<BincodeCodec, Connection> =
+        SqliteStorageProvider::new(conn);
+    storage.run_migrations()?;
+    Ok(())
 }

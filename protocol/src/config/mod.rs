@@ -5,7 +5,7 @@ use config::{Config, FileFormat};
 
 use crate::{
     constants::{ARTI_KEYSTORE, CACHE_PATH, CONFIG_PATH, DAEMON_SOCKET, DATABASE_PATH},
-    database::setup::setup_db,
+    database::setup_db,
 };
 
 #[derive(Debug, Parser)]

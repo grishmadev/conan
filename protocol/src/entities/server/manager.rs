@@ -18,7 +18,6 @@ use tor_hsservice::{HsNickname, OnionServiceConfig, RendRequest, RunningOnionSer
 use crate::{
     comm::enums::IPCRes,
     config::ConanConfig,
-    database::DBConnection,
     debug,
     entities::{
         database::peer::{Peer, PeerData},
@@ -95,11 +94,14 @@ impl Manager {
             None => return Err("No HsId found.".into()),
         };
         println!("Server Address: {}", hsid.display_unredacted());
-        let conn = DBConnection::build(&config.db_path)?;
-        conn.execute(&format!(
-            "INSERT OR REPLACE INTO peer (id, name, address) VALUES (1, 'Me', '{}')",
-            hsid.display_unredacted()
-        ))?;
+        let conn = Connection::open(&config.db_path)?;
+        conn.execute(
+            &format!(
+                "INSERT OR REPLACE INTO peer (id, name, address) VALUES (1, 'Me', '{}')",
+                hsid.display_unredacted()
+            ),
+            (),
+        )?;
         let (response_sender, response_receiver) = broadcast::channel::<(u8, Internal)>(100);
 
         Ok(Self {

@@ -152,7 +152,7 @@ impl Slave {
             peer
         } else {
             let name = generate_name(4..10);
-            dbconn.insert_peer(Peer::build(&name, &remote_hsid))?
+            dbconn.insert_peer(Peer::build(&name, &remote_hsid, true))?
         };
         let name = peer.name;
         #[allow(clippy::cast_possible_truncation)]

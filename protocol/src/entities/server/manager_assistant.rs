@@ -1,16 +1,3 @@
-use std::{
-    collections::HashMap,
-    error::Error,
-    sync::{Arc, RwLock},
-};
-
-use openmls::prelude::{
-    DeserializeBytes, KeyPackage, MlsMessageBodyOut, MlsMessageIn, ProcessedMessageContent,
-    RatchetTreeIn, Welcome, tls_codec::Serialize,
-};
-use rusqlite::Connection;
-use tokio::sync::broadcast;
-
 use crate::{
     comm::{
         enums::{IPCRes, from_bytes, to_bytes},
@@ -19,36 +6,51 @@ use crate::{
     entities::{
         database::{
             chat::{Chat, ChatData},
+            group::ConnectionGroup,
             peer::PeerData,
         },
         server::slave::Slave,
     },
+    extras::codec::BincodeCodec,
     mls::ConanGroup,
     msg::{Msg, SlaveCmd},
+    operations::signing_key,
 };
-
+use openmls::prelude::{
+    DeserializeBytes, KeyPackage, MlsMessageBodyOut, MlsMessageIn, ProcessedMessageContent,
+    RatchetTreeIn, Welcome, tls_codec::Serialize,
+};
+use openmls_sqlite_storage::SqliteStorageProvider;
+use rusqlite::Connection;
+use std::{
+    collections::HashMap,
+    error::Error,
+    sync::{Arc, RwLock},
+};
+use tokio::sync::broadcast;
 pub struct CommandHandler {
     peers: Arc<RwLock<HashMap<u8, Slave>>>,
     groups: Arc<RwLock<HashMap<u8, ConanGroup>>>,
     dbconn: Connection,
     msg_sen: broadcast::Sender<IPCRes>,
+    openmls_store: SqliteStorageProvider<BincodeCodec, Connection>,
 }
-
 impl CommandHandler {
     pub fn new(
         peers: Arc<RwLock<HashMap<u8, Slave>>>,
         groups: Arc<RwLock<HashMap<u8, ConanGroup>>>,
         dbconn: Connection,
         msg_sen: broadcast::Sender<IPCRes>,
+        openmls_store: SqliteStorageProvider<BincodeCodec, Connection>,
     ) -> Self {
         Self {
             peers,
             groups,
             dbconn,
             msg_sen,
+            openmls_store,
         }
     }
-
     pub fn handle_msg_text(&self, idx: u8, text: String) -> Result<(), Box<dyn Error>> {
         let chat = Chat::chat_to_rec(&text, u32::from(idx));
         for _ in 0..3 {
@@ -68,43 +70,47 @@ impl CommandHandler {
         ConanNotif::Text(target.name, text).notify()?;
         Ok(())
     }
-
-    pub fn handle_msg_verified(&self) -> Result<(), Box<dyn Error>> {
+    pub fn handle_msg_verified(&self, idx: u8) -> Result<(), Box<dyn Error>> {
         self.msg_sen
             .send(IPCRes::Notification("Verified.".into()))?;
+        // TODO: make insert_member flexible to desirably insert peer in table when needed
+        // let peer = self.dbconn.insert_member(group_idx, member)
         ConanNotif::Sys("Peer Verified".into()).notify()?;
         Ok(())
     }
-
-    pub fn handle_msg_convert(&self, idx: u8, name: String) -> Result<(), Box<dyn Error>> {
+    pub fn handle_msg_convert(&self, idx: u8, arti_path: String) -> Result<(), Box<dyn Error>> {
         println!("got convert to group");
-        let new_group = ConanGroup::build(&name).unwrap();
-        let key_package = new_group.key_package_bundle("Conan").unwrap();
-        let Ok(mut peers) = self.peers.write() else {
-            return Err("Cannot write to peers.".into());
-        };
-        let Some(peer) = peers.get_mut(&idx) else {
-            return Err("Cannot get selected peer.".into());
-        };
-
-        let key_package_ser = to_bytes(key_package.key_package());
-        peer.command_sender
-            .send(SlaveCmd::Msg(Msg::KeyPackage(key_package_ser)))
-            .unwrap();
-        let mut groups = self.groups.write().unwrap();
-        groups.insert(0, new_group);
+        let peers = Arc::clone(&self.peers);
+        let groups = Arc::clone(&self.groups);
+        tokio::spawn(async move {
+            let signing_key = signing_key(arti_path).await.unwrap();
+            let new_group = ConanGroup::build(&signing_key).unwrap();
+            let key_package = new_group.key_package_bundle("Conan").unwrap();
+            let Ok(mut peers) = peers.write() else {
+                println!("Cannot write to peers.");
+                return;
+            };
+            let Some(peer) = peers.get_mut(&idx) else {
+                println!("Cannot get selected peer.");
+                return;
+            };
+            let key_package_ser = to_bytes(key_package.key_package());
+            peer.command_sender
+                .send(SlaveCmd::Msg(Msg::KeyPackage(key_package_ser)))
+                .unwrap();
+            let mut groups = groups.write().unwrap();
+            groups.insert(0, new_group);
+        });
         Ok(())
     }
-
-    pub fn handle_msg_keypackage(&self, idx: u8, data: Vec<u8>) -> Result<(), Box<dyn Error>> {
+    pub fn handle_msg_keypackage(&self, idx: u8, data: &[u8]) -> Result<(), Box<dyn Error>> {
         println!("got keypackage");
-        let key_package = from_bytes::<KeyPackage>(&data)?;
+        let key_package = from_bytes::<KeyPackage>(data)?;
         let mut groups = self.groups.write().unwrap();
         let Some(group) = groups.get_mut(&0) else {
             return Err("No Group found at given Index".into());
         };
         let (_commit, welcome) = group.add_members(&key_package)?;
-
         let mut peers = self.peers.write().unwrap();
         let Some(peer) = peers.get_mut(&idx) else {
             return Err("No peer found at given Index".into());
@@ -113,12 +119,10 @@ impl CommandHandler {
             return Err("No Welcome found. Ignoring.".into());
         };
         let tree: RatchetTreeIn = group.group.export_ratchet_tree().into();
-
         peer.command_sender
             .send(SlaveCmd::Msg(Msg::Welcome(welcome, tree)))?;
         Ok(())
     }
-
     pub fn handle_msg_welcome(
         &self,
         idx: u8,
@@ -147,7 +151,6 @@ impl CommandHandler {
         }
         Ok(())
     }
-
     pub fn handle_msg_group_error(&self, err: String) -> Result<(), Box<dyn Error>> {
         let Ok(mut groups) = self.groups.write() else {
             return Err("Cannot write to group.".into());
@@ -159,7 +162,6 @@ impl CommandHandler {
         ConanNotif::Sys(err).notify()?;
         Ok(())
     }
-
     pub fn handle_msg_group_verified(&self, idx: u8) -> Result<(), Box<dyn Error>> {
         println!("group verified");
         let mut groups = self.groups.write().unwrap();
@@ -180,7 +182,6 @@ impl CommandHandler {
                 .group
                 .create_message(&group.provider, &group.signer, text)
                 .unwrap();
-
             let message_ser = message.tls_serialize_detached()?;
             peer.command_sender
                 .send(SlaveCmd::Msg(Msg::GroupMessage(message_ser)))?;
@@ -188,10 +189,9 @@ impl CommandHandler {
         ConanNotif::Sys("Group Action Complete.".into()).notify()?;
         Ok(())
     }
-
-    pub fn handle_group_message(&self, message: Vec<u8>) -> Result<(), Box<dyn Error>> {
+    pub fn handle_group_message(&self, message: &[u8]) -> Result<(), Box<dyn Error>> {
         println!("got group message");
-        let (message, _) = MlsMessageIn::tls_deserialize_bytes(&message)?;
+        let (message, _) = MlsMessageIn::tls_deserialize_bytes(message)?;
         let mut groups = self.groups.write().unwrap();
         let Some(group) = groups.get_mut(&0) else {
             return Err("Cannot find selected group".into());
@@ -210,7 +210,6 @@ impl CommandHandler {
         group.group.merge_pending_commit(&group.provider).unwrap();
         Ok(())
     }
-
     pub fn remove_peer(&self, idx: u8) -> Result<(), Box<dyn Error>> {
         if let Ok(mut guard) = self.peers.write()
             && let Some(conn) = guard.remove(&idx)

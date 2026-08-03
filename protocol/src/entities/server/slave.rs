@@ -4,7 +4,7 @@ use rand::random_range;
 use rusqlite::Connection;
 use std::{error::Error, sync::Arc};
 use tokio::{
-    io::{ReadHalf, WriteHalf},
+    io::{AsyncWriteExt, ReadHalf, WriteHalf},
     sync::{RwLock, broadcast},
 };
 use tor_hsservice::RunningOnionService;
@@ -108,6 +108,9 @@ impl Slave {
                     match data {
                         SlaveCmd::Msg(msg) => {
                             cmd = Some(msg);
+                        }
+                        SlaveCmd::Shutdown => {
+                            writer.shutdown().await.unwrap();
                         }
                         _ => {}
                     }

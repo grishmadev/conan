@@ -33,7 +33,7 @@ pub enum Msg {
     PublicKey([u8; 32]),
     SignedAndPublicKey(Vec<u8>, [u8; 32], [u8; 32]),
     Verified,
-    Convert(String),
+    Convert,
     Welcome(Welcome, RatchetTreeIn),
     GroupSuccess,
     KeyPackage(Vec<u8>),
@@ -74,5 +74,6 @@ pub enum Mode {
 #[non_exhaustive]
 pub enum SlaveCmd {
     Msg(Msg),
+    Shutdown,
     GroupSuccess,
 }

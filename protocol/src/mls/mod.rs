@@ -1,43 +1,59 @@
 use std::{collections::HashSet, error::Error};
 
+use ed25519_dalek::SigningKey;
 use openmls::{
     group::{MlsGroup, MlsGroupCreateConfig, MlsGroupJoinConfig, StagedWelcome},
     prelude::{
         BasicCredential, Ciphersuite, CredentialWithKey, KeyPackage, KeyPackageBundle,
-        KeyPackageNewError, LeafNodeIndex, MlsMessageOut, RatchetTreeIn, SignatureScheme, Welcome,
-        group_info::GroupInfo,
+        KeyPackageNewError, LeafNodeIndex, MlsMessageOut, RatchetTreeIn, SignaturePublicKey,
+        SignatureScheme, Welcome, group_info::GroupInfo,
     },
 };
 use openmls_basic_credential::SignatureKeyPair;
-use openmls_rust_crypto::{MemoryStorage, OpenMlsRustCrypto};
+use openmls_rust_crypto::OpenMlsRustCrypto;
+use openmls_sqlite_storage::SqliteStorageProvider;
+use rusqlite::Connection;
+use tor_llcrypto::pk::ed25519::ExpandedKeypair;
 
 use crate::{
+    config::parse_config,
     entities::server::slave::Slave,
-    extras::generate_name,
+    extras::{codec::BincodeCodec, generate_name},
     msg::{Msg, SlaveCmd},
 };
 
-#[derive(Debug)]
 pub struct ConanGroup {
     pub group: MlsGroup,
+    /// This `HashSet` contains the idx's of contacts by peers in [`crate::entities::server::manager::Manager`] struct
     pub members: HashSet<u8>,
     pub provider: OpenMlsRustCrypto,
     pub signer: SignatureKeyPair,
-    pub storage: MemoryStorage,
+    // pub storage: Arc<RwLock<SqliteStorageProvider<BincodeCodec, Connection>>>,
 }
 
 impl ConanGroup {
     /// Builds `GroupInfo`
     /// # Errors
-    pub fn build(id: &str) -> Result<Self, Box<dyn Error>> {
+    pub fn build(expanded_key: &ExpandedKeypair) -> Result<Self, Box<dyn Error>> {
+        let secret_key_bytes = expanded_key.to_secret_key_bytes();
+        let signing_key = SigningKey::from_bytes(secret_key_bytes[..32].try_into()?);
+        let verifying_key = signing_key.verifying_key();
+        let public_key = verifying_key.to_bytes();
         let provider = OpenMlsRustCrypto::default();
-        let signer = SignatureKeyPair::new(SignatureScheme::ED25519)?;
-        let storage = MemoryStorage::default();
+        let signer: SignatureKeyPair = SignatureKeyPair::from_raw(
+            SignatureScheme::ED25519,
+            signing_key.as_bytes().to_vec(),
+            public_key.to_vec(),
+        );
+        let config = parse_config()?;
+        let connection = Connection::open(&config.db_path)?;
+        let storage: SqliteStorageProvider<BincodeCodec, Connection> =
+            SqliteStorageProvider::new(connection);
+        // store the signer
         signer.store(&storage)?;
 
-        // store the signer
         let credential_with_key = CredentialWithKey {
-            credential: BasicCredential::new(id.into()).into(),
+            credential: BasicCredential::new(public_key.to_vec()).into(),
             signature_key: signer.public().into(),
         };
 
@@ -53,7 +69,7 @@ impl ConanGroup {
             members: HashSet::new(),
             provider,
             signer,
-            storage,
+            // storage: Arc::new(RwLock::new(storage)),
         })
     }
 
@@ -118,10 +134,7 @@ impl ConanGroup {
     }
 
     pub fn convert_to_group(&self, slave: &mut Slave) -> Result<(), Box<dyn Error>> {
-        let name = generate_name(3..8);
-        slave
-            .command_sender
-            .send(SlaveCmd::Msg(Msg::Convert(name)))?;
+        slave.command_sender.send(SlaveCmd::Msg(Msg::Convert))?;
         Ok(())
     }
 }

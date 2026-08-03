@@ -1,5 +1,6 @@
 use arti_client::{BootstrapBehavior, TorClient, TorClientConfig, config::CfgPath};
 use futures::{StreamExt, stream::BoxStream};
+use openmls_sqlite_storage::SqliteStorageProvider;
 use rusqlite::Connection;
 use safelog::DisplayRedacted;
 use std::{
@@ -23,7 +24,7 @@ use crate::{
         database::peer::{Peer, PeerData},
         server::{manager_assistant::CommandHandler, slave::Slave},
     },
-    extras::generate_name,
+    extras::{codec::BincodeCodec, generate_name},
     mls::ConanGroup,
     msg::{Internal, Msg, PeerStatus},
     operations::dialer_actor,
@@ -301,7 +302,7 @@ impl Manager {
             let idx = if let Some(known_peer) = known {
                 known_peer.id
             } else {
-                let peer = Peer::build(&name, &peer_addr.0);
+                let peer = Peer::build(&name, &peer_addr.0, true);
                 let peer = trans.insert_peer(peer).unwrap();
                 peer.id
             };
@@ -342,22 +343,27 @@ impl Manager {
         let peers = Arc::clone(&self.peers);
         let groups = Arc::clone(&self.groups);
         let dbconn = Connection::open(&self.config.db_path)?;
+        let config = self.config.clone();
+        let openmls_store: SqliteStorageProvider<BincodeCodec, Connection> =
+            SqliteStorageProvider::new(Connection::open(&self.config.db_path)?);
         self.server_ready.store(true, Ordering::SeqCst);
         tokio::spawn(async move {
-            let cmdhandler = CommandHandler::new(peers, groups, dbconn, sen);
+            let cmdhandler = CommandHandler::new(peers, groups, dbconn, sen, openmls_store);
             while let Ok((idx, internal)) = rec.recv().await {
                 let res = match internal {
                     Internal::Msg(msg) => match msg {
                         Msg::Text(text) => cmdhandler.handle_msg_text(idx, text),
-                        Msg::Verified => cmdhandler.handle_msg_verified(),
-                        Msg::Convert(name) => cmdhandler.handle_msg_convert(idx, name),
-                        Msg::KeyPackage(package) => cmdhandler.handle_msg_keypackage(idx, package),
+                        Msg::Verified => cmdhandler.handle_msg_verified(idx),
+                        Msg::Convert => {
+                            cmdhandler.handle_msg_convert(idx, config.arti_key_store.clone())
+                        }
+                        Msg::KeyPackage(package) => cmdhandler.handle_msg_keypackage(idx, &package),
                         Msg::Welcome(welcome, tree) => {
                             cmdhandler.handle_msg_welcome(idx, welcome, tree)
                         }
                         Msg::GroupError(err) => cmdhandler.handle_msg_group_error(err),
                         Msg::GroupVerified => cmdhandler.handle_msg_group_verified(idx),
-                        Msg::GroupMessage(message) => cmdhandler.handle_group_message(message),
+                        Msg::GroupMessage(message) => cmdhandler.handle_group_message(&message),
                         _ => unimplemented!(),
                     },
                     Internal::RemovePeer(idx) => cmdhandler.remove_peer(idx),

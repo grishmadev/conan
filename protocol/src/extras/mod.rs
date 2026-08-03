@@ -1,3 +1,4 @@
+pub(crate) mod codec;
 use std::ops::Range;
 
 use rand::{random, random_range};

@@ -4,12 +4,15 @@ use conanprotocol::{
     entities::{
         database::{
             chat::{Chat, ChatData},
+            group::{ConnectionGroup, DBGroup},
             peer::PeerData,
         },
         server::{manager::Manager, master::Master},
     },
+    extras::generate_name,
     mls::ConanGroup,
     msg::{Msg, SlaveCmd},
+    operations::signing_key,
 };
 use std::{
     error::Error,
@@ -22,9 +25,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (worker_sender, worker_receiver) = std::sync::mpsc::channel::<IPCCmd>();
     let (msg_sender, msg_receiver) = tokio::sync::broadcast::channel::<IPCRes>(100);
     let mut master = Master::build(None, worker_sender, msg_receiver);
+    let signing_key = signing_key(config.arti_key_store.clone()).await?;
     println!("Starting Master...");
     master.setup_communication(&config)?;
-    let mut manager = Manager::create(msg_sender.clone(), config).await?;
+    let mut manager = Manager::create(msg_sender.clone(), config.clone()).await?;
     println!("Starting Manager..");
     manager.init_server()?;
     println!("Manager Started. Establishing Message Routes..");
@@ -61,14 +65,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     let chat = Chat::chat_to_send(&text, u32::from(idx));
                     manager.dbconn.insert_chat(chat)?;
                     let msg = Msg::Text(text);
-                    // let Some(ratchet) = target.ratchet_session.as_ref() else {
-                    //     println!("Ratchet session not established for peer {idx}.");
-                    //     continue;
-                    // };
                     target.command_sender.send(SlaveCmd::Msg(msg)).unwrap();
                 }
                 IPCCmd::PeerList => {
-                    let mut peers = manager.dbconn.list_all_peers()?;
+                    let mut peers = manager.dbconn.list_all_peers(true)?;
                     if let Ok(mem_slaves) = Arc::clone(&manager.peers).read() {
                         let iter = peers.iter_mut();
                         #[allow(clippy::cast_possible_truncation)]
@@ -97,33 +97,33 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         .send(IPCRes::ChatList { peer_id, chats })?;
                 }
                 IPCCmd::GroupList => {
-                    let groups = {
-                        let data = manager.groups.read().unwrap();
-                        data.iter()
-                            .map(|g| g.0.to_string())
-                            .collect::<Vec<String>>()
-                    };
+                    let groups = manager.dbconn.list_groups()?;
                     manager.msg_sender.send(IPCRes::GroupList(groups))?;
                 }
 
                 IPCCmd::NewGroup => {
                     println!("creating new group.");
-                    let new_group = ConanGroup::build("my-group")?;
+                    let new_group = ConanGroup::build(&signing_key)?;
+                    let dbgroup =
+                        DBGroup::new(new_group.group.group_id().to_vec(), generate_name(3..8));
                     let groups = Arc::clone(&manager.groups);
                     let mut groups = groups.write().unwrap();
-                    groups.insert(0, new_group);
+                    let group = manager.dbconn.insert_group(dbgroup)?;
+                    groups.insert(group.id, new_group);
                 }
-                IPCCmd::AddToGroup(idx) => {
-                    println!("adding {idx} to group 0");
+
+                IPCCmd::AddToGroup(group_idx, peer_idx) => {
                     let peers = Arc::clone(&manager.peers);
                     let mut peers = peers.write().unwrap();
-                    let Some(target) = peers.get_mut(&(idx as u8)) else {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let Some(target) = peers.get_mut(&(peer_idx as u8)) else {
                         println!("Cannot find target peer.");
                         continue;
                     };
                     let groups = Arc::clone(&manager.groups);
                     let mut groups = groups.write().unwrap();
-                    let Some(group) = groups.get_mut(&0) else {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let Some(group) = groups.get_mut(&(group_idx as u8)) else {
                         println!("Cannot get group.");
                         continue;
                     };

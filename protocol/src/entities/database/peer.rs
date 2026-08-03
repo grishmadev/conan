@@ -10,18 +10,20 @@ pub struct Peer {
     pub name: String,
     pub address: String,
     pub connected: bool,
+    pub is_friend: bool,
 }
 
 impl Peer {
     /// Used to build Peer Struct with given parameters
     #[must_use]
-    pub fn build(name: &str, address: &str) -> Self {
+    pub fn build(name: &str, address: &str, is_friend: bool) -> Self {
         let address = address.into();
         let name = name.into();
         Self {
             id: 0,
             name,
             address,
+            is_friend,
             connected: false,
         }
     }
@@ -30,7 +32,7 @@ impl Peer {
 pub trait PeerData {
     /// Lists Peers from Local Database
     /// # Errors
-    fn list_all_peers(&self) -> Result<Vec<Peer>, Box<dyn Error>>;
+    fn list_all_peers(&self, include_friends: bool) -> Result<Vec<Peer>, Box<dyn Error>>;
     /// Get's name of Peer if exists else None
     /// # Errors
     fn get_peer_from_addr(&self, addr: &str) -> Result<Option<Peer>, Box<dyn Error>>;
@@ -49,14 +51,20 @@ pub trait PeerData {
 }
 
 impl PeerData for Connection {
-    fn list_all_peers(&self) -> Result<Vec<Peer>, Box<dyn Error>> {
+    fn list_all_peers(&self, only_friends: bool) -> Result<Vec<Peer>, Box<dyn Error>> {
         let mut result = vec![];
-        let mut query = self.prepare("SELECT * FROM peer")?;
+        let query = if only_friends {
+            "SELECT * FROM peer WHERE is_friend IS TRUE"
+        } else {
+            "SELECT * FROM peer"
+        };
+        let mut query = self.prepare(query)?;
         let rows = query.query_map([], |p| {
             Ok(Peer {
                 id: p.get(0)?,
                 name: p.get(1)?,
                 address: p.get(2)?,
+                is_friend: p.get(3)?,
                 connected: false,
             })
         })?;
@@ -74,6 +82,7 @@ impl PeerData for Connection {
                 id: r.get(0)?,
                 name: r.get(1)?,
                 address: r.get(2)?,
+                is_friend: r.get(3)?,
                 connected: false,
             })
         });
@@ -96,6 +105,7 @@ impl PeerData for Connection {
                 id: r.get(0)?,
                 name: r.get(1)?,
                 address: r.get(2)?,
+                is_friend: r.get(3)?,
                 connected: false,
             })
         });
@@ -112,8 +122,9 @@ impl PeerData for Connection {
     }
 
     fn insert_peer(&self, peer: Peer) -> Result<Peer, Box<dyn Error>> {
-        let mut stmt = self.prepare("INSERT INTO peer (name, address) VALUES (?1, ?2)")?;
-        match stmt.execute((&peer.name, &peer.address)) {
+        let mut stmt =
+            self.prepare("INSERT INTO peer (name, address, is_friend) VALUES (?1, ?2, ?3)")?;
+        match stmt.execute((&peer.name, &peer.address, &peer.is_friend)) {
             Ok(s) => {
                 if s == 0 {
                     return Err("Nothing was inserted.".into());
@@ -125,6 +136,7 @@ impl PeerData for Connection {
                             id: r.get(0)?,
                             name: r.get(1)?,
                             address: r.get(2)?,
+                            is_friend: r.get(3)?,
                             connected: false,
                         })
                     });

@@ -3,7 +3,11 @@ use std::error::Error;
 use bincode::{Decode, Encode, config};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::entities::database::{chat::Chat, peer::Peer};
+use crate::entities::database::{
+    chat::Chat,
+    group::{DBGroup, GroupChat},
+    peer::Peer,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode)]
 #[non_exhaustive]
@@ -12,13 +16,19 @@ pub enum IPCCmd {
     Connect(String, u16),
     Text(u8, String),
     PeerList,
-    ChatList { peer_id: u8, msg_amount: u8 },
+    ChatList {
+        peer_id: u8,
+        msg_amount: u8,
+    },
     PingChat,
     Tick,
     RenamePeer(u8, String),
     DeletePeer(u32),
     NewGroup,
-    AddToGroup(u32),
+    /// Add member to a group
+    /// first u32 for database idx of group
+    /// second u32 for database idx of peer
+    AddToGroup(u32, u32),
     GroupList,
 }
 
@@ -35,7 +45,8 @@ pub enum IPCRes {
     Tock,
     DeletedPeer(u32),
     RenamedPeer(u32),
-    GroupList(Vec<String>),
+    GroupList(Vec<DBGroup>),
+    GroupChat { group_id: u8, chats: Vec<GroupChat> },
 }
 
 /// # Panics

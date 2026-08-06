@@ -54,7 +54,7 @@ impl PeerData for Connection {
     fn list_all_peers(&self, only_friends: bool) -> Result<Vec<Peer>, Box<dyn Error>> {
         let mut result = vec![];
         let query = if only_friends {
-            "SELECT * FROM peer WHERE is_friend IS TRUE"
+            "SELECT * FROM peer WHERE is_friend = TRUE"
         } else {
             "SELECT * FROM peer"
         };

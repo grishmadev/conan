@@ -1,26 +1,19 @@
-use std::{collections::HashSet, error::Error};
-
+use crate::{config::parse_config, extras::codec::BincodeCodec};
 use ed25519_dalek::SigningKey;
 use openmls::{
     group::{MlsGroup, MlsGroupCreateConfig, MlsGroupJoinConfig, StagedWelcome},
     prelude::{
         BasicCredential, Ciphersuite, CredentialWithKey, KeyPackage, KeyPackageBundle,
-        KeyPackageNewError, LeafNodeIndex, MlsMessageOut, RatchetTreeIn, SignaturePublicKey,
-        SignatureScheme, Welcome, group_info::GroupInfo,
+        KeyPackageNewError, LeafNodeIndex, MlsMessageOut, RatchetTreeIn, SignatureScheme, Welcome,
+        group_info::GroupInfo,
     },
 };
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use openmls_sqlite_storage::SqliteStorageProvider;
 use rusqlite::Connection;
+use std::{collections::HashSet, error::Error};
 use tor_llcrypto::pk::ed25519::ExpandedKeypair;
-
-use crate::{
-    config::parse_config,
-    entities::server::slave::Slave,
-    extras::{codec::BincodeCodec, generate_name},
-    msg::{Msg, SlaveCmd},
-};
 
 pub struct ConanGroup {
     pub group: MlsGroup,
@@ -131,10 +124,5 @@ impl ConanGroup {
         let group = staged_join.into_group(provider)?;
 
         Ok(group)
-    }
-
-    pub fn convert_to_group(&self, slave: &mut Slave) -> Result<(), Box<dyn Error>> {
-        slave.command_sender.send(SlaveCmd::Msg(Msg::Convert))?;
-        Ok(())
     }
 }

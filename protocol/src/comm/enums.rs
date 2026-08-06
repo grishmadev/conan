@@ -24,6 +24,7 @@ pub enum IPCCmd {
     Tick,
     RenamePeer(u8, String),
     DeletePeer(u32),
+    DeleteGroup(u32),
     NewGroup,
     /// Add member to a group
     /// first u32 for database idx of group
@@ -44,6 +45,7 @@ pub enum IPCRes {
     ChatList { peer_id: u8, chats: Vec<Chat> },
     Tock,
     DeletedPeer(u32),
+    DeletedGroup(u32),
     RenamedPeer(u32),
     GroupList(Vec<DBGroup>),
     GroupChat { group_id: u8, chats: Vec<GroupChat> },

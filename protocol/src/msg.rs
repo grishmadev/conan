@@ -33,13 +33,13 @@ pub enum Msg {
     PublicKey([u8; 32]),
     SignedAndPublicKey(Vec<u8>, [u8; 32], [u8; 32]),
     Verified,
-    Convert,
-    Welcome(Welcome, RatchetTreeIn),
+    JoinGroup,
+    Welcome(Vec<u8>, Welcome, RatchetTreeIn),
     GroupSuccess,
-    KeyPackage(Vec<u8>),
+    KeyPackage(Vec<u8>, Vec<u8>),
     GroupError(String),
-    GroupVerified,
-    GroupMessage(Vec<u8>),
+    GroupVerified(Vec<u8>),
+    GroupMessage(Vec<u8>, Vec<u8>),
 }
 
 impl Msg {
@@ -75,5 +75,4 @@ pub enum Mode {
 pub enum SlaveCmd {
     Msg(Msg),
     Shutdown,
-    GroupSuccess,
 }

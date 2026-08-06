@@ -18,7 +18,7 @@ use tor_hsservice::{HsNickname, OnionServiceConfig, RendRequest, RunningOnionSer
 
 use crate::{
     comm::enums::IPCRes,
-    config::ConanConfig,
+    config::{ConanConfig, parse_config},
     debug,
     entities::{
         database::peer::{Peer, PeerData},
@@ -26,8 +26,8 @@ use crate::{
     },
     extras::{codec::BincodeCodec, generate_name},
     mls::ConanGroup,
-    msg::{Internal, Msg, PeerStatus},
-    operations::dialer_actor,
+    msg::{Internal, Msg, PeerStatus, SlaveCmd},
+    operations::{dialer_actor, signing_key},
 };
 
 pub struct Manager {
@@ -48,6 +48,9 @@ pub struct Manager {
     pub peers: Arc<RwLock<HashMap<u8, Slave>>>,
     /// `HashMap` for tracking active Groups
     pub groups: Arc<RwLock<HashMap<u8, ConanGroup>>>,
+    /// `HashMap` for tracking temporary Groups
+    /// here `u8` refers to peers (not group) associated with the given group
+    pub temp_groups: Arc<RwLock<HashMap<u8, ConanGroup>>>,
     /// Paths chosen during startup
     pub config: ConanConfig,
 }
@@ -98,7 +101,7 @@ impl Manager {
         let conn = Connection::open(&config.db_path)?;
         conn.execute(
             &format!(
-                "INSERT OR REPLACE INTO peer (id, name, address) VALUES (1, 'Me', '{}')",
+                "INSERT OR REPLACE INTO peer (id, name, address, is_friend) VALUES (1, 'Me', '{}', TRUE)",
                 hsid.display_unredacted()
             ),
             (),
@@ -109,6 +112,7 @@ impl Manager {
             tor_client,
             peers: Arc::new(RwLock::new(HashMap::new())),
             groups: Arc::new(RwLock::new(HashMap::new())),
+            temp_groups: Arc::new(RwLock::new(HashMap::new())),
             stream: Some(request_stream.boxed()),
             service,
             server_ready: AtomicBool::new(false),
@@ -256,7 +260,9 @@ impl Manager {
                 }
                 if i == 5 {
                     msg_sender
-                        .send(IPCRes::Error("Failed to Connect.".to_string()))
+                        .send(IPCRes::Error(
+                            "Failed to Connect.\nPlease check you internet connection".to_string(),
+                        ))
                         .unwrap();
                 } else {
                     msg_sender
@@ -335,6 +341,34 @@ impl Manager {
         Ok(PeerStatus::Connected)
     }
 
+    pub async fn make_peer_join_group(
+        &self,
+        peer_id: u8,
+        group_id: u8,
+    ) -> Result<(), Box<dyn Error>> {
+        let peers = Arc::clone(&self.peers);
+        let config = parse_config()?;
+        let key = signing_key(config.arti_key_store).await?;
+        let mut peers = peers.write().unwrap();
+        #[allow(clippy::cast_possible_truncation)]
+        let Some(target) = peers.get_mut(&(peer_id)) else {
+            return Err("Cannot find target peer.".into());
+        };
+        let groups = Arc::clone(&self.groups);
+        let mut groups = groups.write().unwrap();
+
+        target.command_sender.send(SlaveCmd::Msg(Msg::JoinGroup))?;
+        let Ok(mut tmp_grps) = self.temp_groups.write() else {
+            return Err("Could not write to temp groups".into());
+        };
+        let group = match groups.remove(&group_id) {
+            Some(e) => e,
+            None => ConanGroup::build(&key)?,
+        };
+        #[allow(clippy::cast_possible_truncation)]
+        tmp_grps.insert(peer_id, group);
+        Ok(())
+    }
     /// Used to setup Slave to Master communication Pipeline
     /// # Errors
     pub fn setup_slave_communication(&mut self) -> Result<(), Box<dyn Error>> {
@@ -342,28 +376,36 @@ impl Manager {
         let sen = self.msg_sender.clone();
         let peers = Arc::clone(&self.peers);
         let groups = Arc::clone(&self.groups);
+        let temp_groups = Arc::clone(&self.temp_groups);
         let dbconn = Connection::open(&self.config.db_path)?;
         let config = self.config.clone();
         let openmls_store: SqliteStorageProvider<BincodeCodec, Connection> =
             SqliteStorageProvider::new(Connection::open(&self.config.db_path)?);
         self.server_ready.store(true, Ordering::SeqCst);
         tokio::spawn(async move {
-            let cmdhandler = CommandHandler::new(peers, groups, dbconn, sen, openmls_store);
-            while let Ok((idx, internal)) = rec.recv().await {
+            let cmdhandler =
+                CommandHandler::new(peers, groups, temp_groups, dbconn, sen, openmls_store);
+            while let Ok((peer_idx, internal)) = rec.recv().await {
                 let res = match internal {
                     Internal::Msg(msg) => match msg {
-                        Msg::Text(text) => cmdhandler.handle_msg_text(idx, text),
-                        Msg::Verified => cmdhandler.handle_msg_verified(idx),
-                        Msg::Convert => {
-                            cmdhandler.handle_msg_convert(idx, config.arti_key_store.clone())
+                        Msg::Text(text) => cmdhandler.handle_msg_text(peer_idx, text),
+                        Msg::Verified => cmdhandler.handle_msg_verified(),
+                        Msg::JoinGroup => {
+                            cmdhandler.handle_msg_convert(peer_idx, config.arti_key_store.clone())
                         }
-                        Msg::KeyPackage(package) => cmdhandler.handle_msg_keypackage(idx, &package),
-                        Msg::Welcome(welcome, tree) => {
-                            cmdhandler.handle_msg_welcome(idx, welcome, tree)
+                        Msg::KeyPackage(key_idx, package) => {
+                            cmdhandler.handle_msg_keypackage(peer_idx, key_idx, &package)
                         }
-                        Msg::GroupError(err) => cmdhandler.handle_msg_group_error(err),
-                        Msg::GroupVerified => cmdhandler.handle_msg_group_verified(idx),
-                        Msg::GroupMessage(message) => cmdhandler.handle_group_message(&message),
+                        Msg::Welcome(group_idx, welcome, tree) => {
+                            cmdhandler.handle_msg_welcome(peer_idx, &group_idx, welcome, tree)
+                        }
+                        Msg::GroupError(err) => cmdhandler.handle_msg_group_error(peer_idx, err),
+                        Msg::GroupVerified(group_id) => {
+                            cmdhandler.handle_msg_group_verified(peer_idx, &group_id)
+                        }
+                        Msg::GroupMessage(group_id, message) => {
+                            cmdhandler.handle_group_message(&group_id, &message)
+                        }
                         _ => unimplemented!(),
                     },
                     Internal::RemovePeer(idx) => cmdhandler.remove_peer(idx),

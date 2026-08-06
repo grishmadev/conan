@@ -82,6 +82,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     manager.dbconn.delete_peer(idx)?;
                     manager.msg_sender.send(IPCRes::DeletedPeer(idx))?;
                 }
+                IPCCmd::DeleteGroup(idx) => {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let idx = idx as u8;
+                    manager.dbconn.delete_group(idx)?;
+                    manager.groups.write().unwrap().remove(&idx);
+                    manager
+                        .msg_sender
+                        .send(IPCRes::DeletedGroup(u32::from(idx)))?;
+                }
                 IPCCmd::RenamePeer(idx, new_name) => {
                     let idx = u32::from(idx);
                     manager.dbconn.rename_peer(idx, new_name)?;
@@ -113,21 +122,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
 
                 IPCCmd::AddToGroup(group_idx, peer_idx) => {
-                    let peers = Arc::clone(&manager.peers);
-                    let mut peers = peers.write().unwrap();
                     #[allow(clippy::cast_possible_truncation)]
-                    let Some(target) = peers.get_mut(&(peer_idx as u8)) else {
-                        println!("Cannot find target peer.");
-                        continue;
-                    };
-                    let groups = Arc::clone(&manager.groups);
-                    let mut groups = groups.write().unwrap();
-                    #[allow(clippy::cast_possible_truncation)]
-                    let Some(group) = groups.get_mut(&(group_idx as u8)) else {
-                        println!("Cannot get group.");
-                        continue;
-                    };
-                    group.convert_to_group(target)?;
+                    manager
+                        .make_peer_join_group(peer_idx as u8, group_idx as u8)
+                        .await;
                 }
                 _ => unimplemented!(),
             }

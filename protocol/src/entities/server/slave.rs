@@ -1,6 +1,5 @@
 use crate::{crypto::ratchet::RatchetSession, msg::SlaveCmd, operations::send};
 use arti_client::DataStream;
-use rand::random_range;
 use rusqlite::Connection;
 use std::{error::Error, sync::Arc};
 use tokio::{
@@ -112,7 +111,6 @@ impl Slave {
                         SlaveCmd::Shutdown => {
                             writer.shutdown().await.unwrap();
                         }
-                        _ => {}
                     }
                     if let Some(cmd) = cmd {
                         send(&mut writer, cmd, &ratchet).await.unwrap();

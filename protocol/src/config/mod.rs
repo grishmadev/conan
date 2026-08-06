@@ -131,8 +131,8 @@ pub fn parse_config() -> Result<ConanConfig, Box<dyn std::error::Error>> {
     if let Some(parent) = std::path::Path::new(&socket_path).parent() {
         _ = fs::create_dir_all(parent);
     }
-    if setup_db(&db_path).is_err() {
-        eprintln!("Could not setup Database.\nAborting");
+    if let Err(e) = setup_db(&db_path) {
+        eprintln!("Could not setup Database.\n{e}");
         process::exit(1);
     }
 

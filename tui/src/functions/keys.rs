@@ -74,34 +74,39 @@ impl Keys for App {
                 }
             }
             KeyCode::Char('d') if matches!(self.tab, Tab::Contact) => {
-                if let Some(peer) = self.current_contact()
-                    && peer.id == 1
-                {
+                let (is_peer, idx) = self.current_contact();
+                let Some(idx) = idx else {
+                    return Ok(());
+                };
+                if is_peer && idx == 1 {
                     self.notification = Some(("Cannot delete Self".into(), Instant::now()));
                     return Ok(());
                 }
-                let Some(conn) = self.current_contact() else {
-                    return Ok(());
+                let name = if is_peer {
+                    &self.contacts.get(idx).unwrap().name
+                } else {
+                    &self.groups.get(idx).unwrap().name
                 };
                 self.active_screen = Screen::ConfirmScreen {
-                    prompt: format!("Are you sure you want to delete {}?", conn.name),
+                    prompt: format!("Are you sure you want to delete {name}?"),
                     yes_selected: false,
                     mode: ConfirmMode::DeletePeer,
                 };
             }
             KeyCode::Char('r') if matches!(self.tab, Tab::Contact) => {
-                if let Some(peer) = self.current_contact()
-                    && peer.id == 1
-                {
+                let (true, Some(idx)) = self.current_contact() else {
+                    return Ok(());
+                };
+                let Some(peer) = self.contacts.get(idx) else {
+                    return Ok(());
+                };
+                if peer.id == 1 {
                     self.notification = Some(("Cannot rename self.".to_string(), Instant::now()));
                     return Ok(());
                 }
-                let Some(conn) = self.current_contact() else {
-                    return Ok(());
-                };
                 self.active_screen = Screen::InputScreen {
-                    input: conn.name.clone(),
-                    cursor_pos: conn.name.len(),
+                    input: peer.name.clone(),
+                    cursor_pos: peer.name.len(),
                     prompt: " Rename Peer ".into(),
                     mode: InputMode::RenamePeer,
                 };
@@ -174,9 +179,13 @@ impl Keys for App {
                 };
                 match self.tab {
                     Tab::Contact => {
-                        if let Some(current_peer) = self.current_contact()
-                            && current_peer.id == 1
-                        {
+                        let (true, Some(idx)) = self.current_contact() else {
+                            return Ok(());
+                        };
+                        let Some(peer) = self.contacts.get(idx) else {
+                            return Ok(());
+                        };
+                        if peer.id == 1 {
                             // Self: we don't need loading screen, just load the chat
                             #[allow(clippy::cast_possible_truncation)]
                             self.send(IPCCmd::ChatList {
@@ -374,14 +383,24 @@ impl Keys for App {
                     self.active_screen = Screen::None;
                 }
                 ConfirmMode::DeletePeer => {
-                    if *yes_selected {
-                        let Some(idx) = self.contact_idx.selected() else {
-                            return Ok(());
+                    if *yes_selected && let Some(idx) = self.contact_idx.selected() {
+                        let is_peer = idx < self.contacts.len();
+                        let idx = if is_peer {
+                            idx
+                        } else {
+                            idx - self.contacts.len() - 1
                         };
-                        let Some(peer) = self.contacts.get(idx) else {
-                            return Ok(());
+                        let cmd = if is_peer {
+                            let Some(peer) = self.contacts.get(idx) else {
+                                return Ok(());
+                            };
+                            IPCCmd::DeletePeer(peer.id)
+                        } else {
+                            let Some(group) = self.groups.get(idx) else {
+                                return Ok(());
+                            };
+                            IPCCmd::DeleteGroup(u32::from(group.id))
                         };
-                        let cmd = IPCCmd::DeletePeer(peer.id);
                         self.send(cmd).await?;
                     }
                     self.active_screen = Screen::None;
@@ -439,11 +458,21 @@ impl Keys for App {
                         PaletteCommand::NewGroup => {
                             self.send(IPCCmd::NewGroup).await?;
                         }
-                        PaletteCommand::AddToGroup => {
-                            let Some(curcon) = self.current_contact() else {
+                        PaletteCommand::AddToGroup(grp_name) => {
+                            let (true, Some(idx)) = self.current_contact() else {
                                 return Ok(());
                             };
-                            self.send(IPCCmd::AddToGroup(curcon.id)).await?;
+                            let Some(curcon) = self.contacts.get(idx) else {
+                                return Ok(());
+                            };
+                            let Some(curgrp) = self.groups.iter().find(|g| g.name == grp_name)
+                            else {
+                                self.notification =
+                                    Some(("No such group with that name".into(), Instant::now()));
+                                return Ok(());
+                            };
+                            self.send(IPCCmd::AddToGroup(u32::from(curgrp.id), curcon.id))
+                                .await?;
                         }
                     }
                     self.active_screen = Screen::None;

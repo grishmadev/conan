@@ -12,7 +12,7 @@ use bincode::config;
 use conanprotocol::{
     comm::enums::{IPCCmd, IPCRes, encode},
     config::ConanConfig,
-    entities::database::{chat::Chat, peer::Peer},
+    entities::database::{chat::Chat, group::DBGroup, peer::Peer},
     msg::Mode,
 };
 use ratatui::{
@@ -47,7 +47,7 @@ pub struct App {
     pub running: bool,
     pub time: Instant,
     pub contacts: Vec<Peer>,
-    pub groups: Vec<String>,
+    pub groups: Vec<DBGroup>,
     pub contact_idx: ListState,
     pub chats: Vec<Chat>,
     pub chat_buf: String,
@@ -213,22 +213,33 @@ impl App {
                 IPCRes::GroupList(list) => {
                     self.groups = list;
                 }
-                IPCRes::Text(idx, text) => {
-                    let Some(cur_cont) = self.current_contact() else {
+                IPCRes::Text(sent_idx, text) => {
+                    let (true, Some(idx)) = self.current_contact() else {
                         return Ok(());
                     };
-                    let idx = u32::from(idx);
+                    if idx != usize::from(sent_idx) {
+                        return Ok(());
+                    }
+                    let Some(cur_cont) = self.contacts.get(idx) else {
+                        return Ok(());
+                    };
+                    let idx = idx as u32;
                     if cur_cont.id.eq(&idx) {
                         let new_chat = Chat::chat_to_rec(&text, idx);
                         self.chats.push(new_chat);
                     }
                 }
                 IPCRes::ChatList { peer_id, chats } => {
-                    if let Some(target) = self.current_contact()
-                        && target.id == u32::from(peer_id)
-                    {
-                        self.chats = chats;
+                    let (true, Some(idx)) = self.current_contact() else {
+                        return Ok(());
+                    };
+                    let Some(cur_cont) = self.contacts.get(idx) else {
+                        return Ok(());
+                    };
+                    if cur_cont.id != u32::from(peer_id) {
+                        return Ok(());
                     }
+                    self.chats = chats;
                 }
                 IPCRes::RenamedPeer(idx) => {
                     if let Some(target) = self.contacts.get(idx as usize) {
@@ -242,6 +253,9 @@ impl App {
                             self.active_screen = Screen::None;
                         }
                     }
+                }
+                IPCRes::DeletedGroup(_) => {
+                    self.notification = Some(("Group deleted.".to_string(), Instant::now()));
                 }
                 IPCRes::DeletedPeer(_) => {
                     self.notification = Some(("Peer deleted.".to_string(), Instant::now()));
@@ -366,9 +380,21 @@ impl App {
     }
 
     /// Fetches current contact in terminal
-    fn current_contact(&self) -> Option<&Peer> {
-        let cur_idx = self.contact_idx.selected()?;
-        self.contacts.get(cur_idx)
+    fn current_contact(&self) -> (bool, Option<usize>) {
+        let Some(idx) = self.contact_idx.selected() else {
+            return (false, None);
+        };
+        // Selected `Groups`
+        if idx == self.contacts.len() {
+            return (false, None);
+        }
+        let is_peer = idx < self.contacts.len();
+        let idx = if is_peer {
+            idx
+        } else {
+            idx - self.contacts.len() - 1
+        };
+        (is_peer, Some(idx))
     }
 
     /// Updates chats on screen by calling database via socket

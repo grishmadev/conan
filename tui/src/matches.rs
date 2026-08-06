@@ -17,15 +17,24 @@ pub enum TuiCommand {
 }
 
 pub enum PaletteCommand {
-    AddToGroup,
+    AddToGroup(String),
     NewGroup,
 }
 
 impl PaletteCommand {
     pub fn try_from(value: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let val = match value {
+        let mut values = value.split(' ');
+        let Some(cmd) = values.next() else {
+            return Err("No Command found.".into());
+        };
+        let val = match cmd {
             "newgroup" => PaletteCommand::NewGroup,
-            "addtogroup" => PaletteCommand::AddToGroup,
+            "addtogroup" => {
+                let Some(name) = values.next() else {
+                    return Err("Did not get group name".into());
+                };
+                PaletteCommand::AddToGroup(name.to_string())
+            }
             _ => {
                 return Err("No such Enum".into());
             }

@@ -78,7 +78,7 @@ impl Keys for App {
                 let Some(idx) = idx else {
                     return Ok(());
                 };
-                if is_peer && idx == 1 {
+                if is_peer && idx == 0 {
                     self.notification = Some(("Cannot delete Self".into(), Instant::now()));
                     return Ok(());
                 }
@@ -456,7 +456,7 @@ impl Keys for App {
                 Ok(cmd) => {
                     match cmd {
                         PaletteCommand::NewGroup => {
-                            self.send(IPCCmd::NewGroup).await?;
+                            self.send(IPCCmd::NewGroup(None)).await?;
                         }
                         PaletteCommand::AddToGroup(grp_name) => {
                             let (true, Some(idx)) = self.current_contact() else {

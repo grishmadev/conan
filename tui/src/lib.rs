@@ -30,9 +30,9 @@ use tokio::{
 
 use crate::{
     components::{
-        command_pallete::CommandPallete, confirmation_screen::ConfirmScreen,
-        loading_screen::LoadingScreen, main_component::MainComponents, new_peer::InputScreen,
-        notification::Notification, welcome::WelcomeScreen,
+        command_pallete::CommandPallete, confirmation_screen::ConfirmScreen, input::InputScreen,
+        loading_screen::LoadingScreen, main_component::MainComponents, notification::Notification,
+        welcome::WelcomeScreen,
     },
     functions::{ConfirmMode, InputMode, LoadingMode, keys::Keys},
     matches::{Screen, Tab},

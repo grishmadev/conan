@@ -3,11 +3,7 @@ use std::error::Error;
 use bincode::{Decode, Encode, config};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::entities::database::{
-    chat::Chat,
-    group::{DBGroup, GroupChat},
-    peer::Peer,
-};
+use crate::entities::database::{chat::Chat, group::DBGroup, group_chat::GroupChat, peer::Peer};
 
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode)]
 #[non_exhaustive]
@@ -23,9 +19,12 @@ pub enum IPCCmd {
     PingChat,
     Tick,
     RenamePeer(u8, String),
+    /// Deletes peer with provided database idx
     DeletePeer(u32),
+    /// Deletes group with provided database idx
     DeleteGroup(u32),
-    NewGroup,
+    /// Creates a new group with provided name or generate a random name
+    NewGroup(Option<String>),
     /// Add member to a group
     /// first u32 for database idx of group
     /// second u32 for database idx of peer

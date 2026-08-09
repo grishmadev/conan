@@ -1,5 +1,6 @@
 pub(crate) mod codec;
 pub mod crypto;
+pub(crate) mod mls_provider;
 use std::ops::Range;
 
 use rand::{random, random_range};

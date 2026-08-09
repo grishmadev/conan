@@ -51,6 +51,5 @@ hex.workspace = true
 openmls.workspace = true
 openmls_rust_crypto.workspace = true
 openmls_basic_credential.workspace = true
-openmls_memory_storage.workspace = true
 libp2p.workspace = true
 openmls_sqlite_storage.workspace = true

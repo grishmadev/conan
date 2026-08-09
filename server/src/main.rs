@@ -110,22 +110,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     manager.msg_sender.send(IPCRes::GroupList(groups))?;
                 }
 
-                IPCCmd::NewGroup => {
-                    println!("creating new group.");
+                IPCCmd::NewGroup(name) => {
                     let new_group = ConanGroup::build(&signing_key)?;
-                    let dbgroup =
-                        DBGroup::new(new_group.group.group_id().to_vec(), generate_name(3..8));
-                    let groups = Arc::clone(&manager.groups);
-                    let mut groups = groups.write().unwrap();
-                    let group = manager.dbconn.insert_group(dbgroup)?;
-                    groups.insert(group.id, new_group);
+                    let name = if let Some(name) = name {
+                        name
+                    } else {
+                        generate_name(3..8)
+                    };
+                    let dbgroup = DBGroup::new(new_group.group.group_id().to_vec(), name);
+                    // let groups = Arc::clone(&manager.groups);
+                    // let mut groups = groups.write().unwrap();
+                    manager.dbconn.insert_group(dbgroup)?;
+                    // groups.insert(group.id, new_group);
                 }
 
                 IPCCmd::AddToGroup(group_idx, peer_idx) => {
-                    #[allow(clippy::cast_possible_truncation)]
-                    manager
-                        .make_peer_join_group(peer_idx as u8, group_idx as u8)
-                        .await;
+                    _ = manager.make_peer_join_group(peer_idx, group_idx).await;
                 }
                 _ => unimplemented!(),
             }

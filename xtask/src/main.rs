@@ -1,4 +1,4 @@
-use conanprotocol::config::parse_config;
+use conanprotocol::{config::parse_config, entities::database::peer::PeerData};
 use rusqlite::Connection;
 use std::error::Error;
 
@@ -6,8 +6,9 @@ use std::error::Error;
 /// Not a part of the codebase
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let dbpath = parse_config()?;
-    let conn = Connection::open(dbpath.db_path)?;
-    conn.execute("DELETE FROM chat WHERE 1 = 1", ())?;
+    let config = parse_config()?;
+    let conn = Connection::open(config.db_path)?;
+    let peers = conn.list_all_peers(false)?;
+    println!("peers: {peers:#?}");
     Ok(())
 }

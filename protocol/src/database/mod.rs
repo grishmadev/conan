@@ -79,7 +79,7 @@ pub fn setup_db(db_path: &str) -> Result<(), Box<dyn std::error::Error>> {
     CREATE TABLE IF NOT EXISTS group_chat (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         group_id INTEGER NOT NULL REFERENCES my_group(id),
-        sender_id INTEGER NOT NULL REFERENCES group_peer(id),
+        sender_id INTEGER NOT NULL REFERENCES peer(id),
         data TEXT NOT NULL,
         time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );",

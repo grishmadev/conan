@@ -1,7 +1,6 @@
 use bincode::{Decode, Encode};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
-use std::error::Error;
 
 #[derive(Debug, Encode, Decode, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DBGroup {
@@ -10,14 +9,6 @@ pub struct DBGroup {
     /// Not to be confused with relational `group_id`
     pub group_id: Vec<u8>,
     pub name: String,
-}
-#[derive(Debug, Encode, Decode, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GroupChat {
-    pub id: u8,
-    pub group_id: u8,
-    pub sender_id: u8,
-    pub data: String,
-    pub time: String,
 }
 
 impl DBGroup {
@@ -32,14 +23,15 @@ impl DBGroup {
 }
 
 pub trait ConnectionGroup {
-    fn list_groups(&self) -> Result<Vec<DBGroup>, Box<dyn Error>>;
-    fn insert_group(&self, group: DBGroup) -> Result<DBGroup, Box<dyn Error>>;
-    fn delete_group(&self, group_id: u8) -> Result<(), Box<dyn Error>>;
-    fn get_group_by_group_id(&self, group_id: &[u8]) -> Result<DBGroup, Box<dyn Error>>;
+    fn list_groups(&self) -> Result<Vec<DBGroup>, rusqlite::Error>;
+    fn insert_group(&self, group: DBGroup) -> Result<DBGroup, rusqlite::Error>;
+    fn delete_group(&self, group_id: u8) -> Result<(), rusqlite::Error>;
+    fn get_group_by_group_id(&self, group_id: &[u8]) -> Result<DBGroup, rusqlite::Error>;
+    fn get_group_by_idx(&self, idx: u8) -> Result<DBGroup, rusqlite::Error>;
 }
 
 impl ConnectionGroup for Connection {
-    fn list_groups(&self) -> Result<Vec<DBGroup>, Box<dyn Error>> {
+    fn list_groups(&self) -> Result<Vec<DBGroup>, rusqlite::Error> {
         let mut stmt = self.prepare("SELECT * FROM my_group")?;
         let rows = stmt.query_map([], |r| {
             Ok(DBGroup {
@@ -56,7 +48,7 @@ impl ConnectionGroup for Connection {
         Ok(result)
     }
 
-    fn insert_group(&self, group: DBGroup) -> Result<DBGroup, Box<dyn Error>> {
+    fn insert_group(&self, group: DBGroup) -> Result<DBGroup, rusqlite::Error> {
         if let Ok(dbgroup) = self.get_group_by_group_id(&group.group_id) {
             return Ok(dbgroup);
         };
@@ -80,22 +72,34 @@ impl ConnectionGroup for Connection {
         if let Some(res) = res {
             Ok(res)
         } else {
-            Err("Could not insert group".into())
+            Err(rusqlite::Error::QueryReturnedNoRows)
         }
     }
 
-    fn delete_group(&self, group_id: u8) -> Result<(), Box<dyn Error>> {
+    fn delete_group(&self, group_id: u8) -> Result<(), rusqlite::Error> {
         let mut stmt = self.prepare("DELETE FROM my_group WHERE id = ?1")?;
         let res = stmt.execute([group_id])?;
         if res != 1 {
-            return Err("Could not delete targeted group".into());
+            return Err(rusqlite::Error::QueryReturnedNoRows);
         }
         Ok(())
     }
 
-    fn get_group_by_group_id(&self, group_id: &[u8]) -> Result<DBGroup, Box<dyn Error>> {
+    fn get_group_by_group_id(&self, group_id: &[u8]) -> Result<DBGroup, rusqlite::Error> {
         let mut stmt = self.prepare("SELECT * FROM my_group WHERE group_id = ?1")?;
         let row = stmt.query_one(params![group_id], |r| {
+            Ok(DBGroup {
+                id: r.get(0)?,
+                group_id: r.get(1)?,
+                name: r.get(2)?,
+            })
+        })?;
+        Ok(row)
+    }
+
+    fn get_group_by_idx(&self, idx: u8) -> Result<DBGroup, rusqlite::Error> {
+        let mut stmt = self.prepare("SELECT * FROM my_group WHERE id = ?1")?;
+        let row = stmt.query_one(params![idx], |r| {
             Ok(DBGroup {
                 id: r.get(0)?,
                 group_id: r.get(1)?,

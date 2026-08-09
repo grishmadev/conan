@@ -1,4 +1,8 @@
-use crate::{config::parse_config, extras::codec::BincodeCodec};
+use crate::{
+    config::parse_config,
+    database::FromConnection,
+    extras::{codec::BincodeCodec, mls_provider::ConanMlsProvider},
+};
 use ed25519_dalek::SigningKey;
 use openmls::{
     group::{MlsGroup, MlsGroupCreateConfig, MlsGroupJoinConfig, StagedWelcome},
@@ -19,50 +23,44 @@ pub struct ConanGroup {
     pub group: MlsGroup,
     /// This `HashSet` contains the idx's of contacts by peers in [`crate::entities::server::manager::Manager`] struct
     pub members: HashSet<u8>,
-    pub provider: OpenMlsRustCrypto,
     pub signer: SignatureKeyPair,
-    // pub storage: Arc<RwLock<SqliteStorageProvider<BincodeCodec, Connection>>>,
+    pub signing_key: SigningKey,
 }
 
 impl ConanGroup {
     /// Builds `GroupInfo`
     /// # Errors
     pub fn build(expanded_key: &ExpandedKeypair) -> Result<Self, Box<dyn Error>> {
+        let config = parse_config()?;
+        let connection = Connection::open(&config.db_path)?;
+        let storage: SqliteStorageProvider<BincodeCodec, Connection> =
+            SqliteStorageProvider::from_db(&connection)?;
         let secret_key_bytes = expanded_key.to_secret_key_bytes();
         let signing_key = SigningKey::from_bytes(secret_key_bytes[..32].try_into()?);
         let verifying_key = signing_key.verifying_key();
         let public_key = verifying_key.to_bytes();
-        let provider = OpenMlsRustCrypto::default();
+        let provider = ConanMlsProvider::new(&connection)?;
         let signer: SignatureKeyPair = SignatureKeyPair::from_raw(
             SignatureScheme::ED25519,
             signing_key.as_bytes().to_vec(),
             public_key.to_vec(),
         );
-        let config = parse_config()?;
-        let connection = Connection::open(&config.db_path)?;
-        let storage: SqliteStorageProvider<BincodeCodec, Connection> =
-            SqliteStorageProvider::new(connection);
-        // store the signer
         signer.store(&storage)?;
 
         let credential_with_key = CredentialWithKey {
-            credential: BasicCredential::new(public_key.to_vec()).into(),
+            credential: BasicCredential::new(public_key.into()).into(),
             signature_key: signer.public().into(),
         };
 
-        let group = MlsGroup::new(
-            &provider,
-            &signer,
-            &MlsGroupCreateConfig::default(),
-            credential_with_key,
-        )?;
+        let grp_config = MlsGroupCreateConfig::default();
+
+        let group = MlsGroup::new(&provider, &signer, &grp_config, credential_with_key)?;
 
         Ok(Self {
             group,
             members: HashSet::new(),
-            provider,
             signer,
-            // storage: Arc::new(RwLock::new(storage)),
+            signing_key,
         })
     }
 
@@ -71,14 +69,15 @@ impl ConanGroup {
     pub fn add_members(
         &mut self,
         package: &KeyPackage,
+        provider: &ConanMlsProvider,
     ) -> Result<(MlsMessageOut, MlsMessageOut), Box<dyn Error>> {
         let package_slice = std::slice::from_ref(package);
 
         let res = self
             .group
-            .add_members(&self.provider, &self.signer, package_slice)?;
+            .add_members(provider, &self.signer, package_slice)?;
 
-        self.group.merge_pending_commit(&self.provider)?;
+        self.group.merge_pending_commit(provider)?;
 
         Ok((res.0, res.1))
     }
@@ -89,39 +88,43 @@ impl ConanGroup {
     pub fn remove_members(
         &mut self,
         idx: u32,
+        provider: &ConanMlsProvider,
     ) -> Result<(MlsMessageOut, Option<GroupInfo>), Box<dyn Error>> {
-        let res =
-            self.group
-                .remove_members(&self.provider, &self.signer, &[LeafNodeIndex::new(idx)])?;
-        self.group.merge_pending_commit(&self.provider)?;
+        let res = self
+            .group
+            .remove_members(provider, &self.signer, &[LeafNodeIndex::new(idx)])?;
+        self.group.merge_pending_commit(provider)?;
         Ok((res.0, res.2))
     }
 
     /// Returns `KeyPackageBundle` from Group
     /// # Errors
-    pub fn key_package_bundle(&self, id: &str) -> Result<KeyPackageBundle, KeyPackageNewError> {
+    pub fn key_package_bundle(
+        &self,
+        signer: &SignatureKeyPair,
+        provider: &ConanMlsProvider,
+    ) -> Result<KeyPackageBundle, KeyPackageNewError> {
         let cipher = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
         let credential_with_key = CredentialWithKey {
-            credential: BasicCredential::new(id.into()).into(),
-            signature_key: self.signer.public().into(),
+            credential: BasicCredential::new(self.signing_key.verifying_key().to_bytes().into())
+                .into(),
+            signature_key: signer.public().into(),
         };
-        KeyPackage::builder().build(cipher, &self.provider, &self.signer, credential_with_key)
+
+        KeyPackage::builder().build(cipher, provider, signer, credential_with_key)
     }
 
     /// Sets Group from `StagedWelcome`
     /// # Errors
-    pub fn join_group(
-        provider: &OpenMlsRustCrypto,
-        welcome: Welcome,
-        tree: RatchetTreeIn,
-    ) -> Result<MlsGroup, Box<dyn Error>> {
+    pub fn join_group(welcome: Welcome, tree: RatchetTreeIn) -> Result<MlsGroup, Box<dyn Error>> {
+        let provider = OpenMlsRustCrypto::default();
         let staged_join = StagedWelcome::new_from_welcome(
-            provider,
+            &provider,
             &MlsGroupJoinConfig::default(),
             welcome,
             Some(tree),
         )?;
-        let group = staged_join.into_group(provider)?;
+        let group = staged_join.into_group(&provider)?;
 
         Ok(group)
     }

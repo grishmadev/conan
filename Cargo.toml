@@ -58,9 +58,7 @@ hex = "0.4"
 openmls = { git = "https://github.com/grishmadev/openmls", branch = "fix/update-rusqlite" }
 openmls_rust_crypto = { git = "https://github.com/grishmadev/openmls", branch = "fix/update-rusqlite" }
 openmls_basic_credential = { git = "https://github.com/grishmadev/openmls", branch = "fix/update-rusqlite" }
-openmls_memory_storage = "0.5.0"
 libp2p = { version = "0.56.0", features = ["gossipsub", "yamux", "noise"] }
-# openmls_sqlite_storage = "0.2.0"
 openmls_sqlite_storage = { git = "https://github.com/grishmadev/openmls", branch = "fix/update-rusqlite" }
 
 [profile.release]

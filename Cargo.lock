@@ -1099,7 +1099,6 @@ dependencies = [
  "notify-rust",
  "openmls",
  "openmls_basic_credential",
- "openmls_memory_storage 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "openmls_rust_crypto",
  "openmls_sqlite_storage",
  "rand 0.10.2",
@@ -2693,7 +2692,7 @@ dependencies = [
  "log",
  "serde",
  "subtle",
- "tls_codec 0.5.0",
+ "tls_codec",
  "zeroize",
 ]
 
@@ -3401,7 +3400,7 @@ dependencies = [
  "libcrux-curve25519",
  "libcrux-p256",
  "rand 0.10.2",
- "tls_codec 0.5.0",
+ "tls_codec",
 ]
 
 [[package]]
@@ -3484,7 +3483,7 @@ dependencies = [
  "libcrux-sha3",
  "libcrux-traits",
  "rand 0.10.2",
- "tls_codec 0.5.0",
+ "tls_codec",
 ]
 
 [[package]]
@@ -4381,12 +4380,12 @@ source = "git+https://github.com/grishmadev/openmls?branch=fix%2Fupdate-rusqlite
 dependencies = [
  "log",
  "openmls_serialization_helpers",
- "openmls_traits 0.5.0 (git+https://github.com/grishmadev/openmls?branch=fix%2Fupdate-rusqlite)",
+ "openmls_traits",
  "rayon",
  "serde",
  "serde_bytes",
  "thiserror 2.0.19",
- "tls_codec 0.5.0",
+ "tls_codec",
  "zeroize",
 ]
 
@@ -4397,26 +4396,13 @@ source = "git+https://github.com/grishmadev/openmls?branch=fix%2Fupdate-rusqlite
 dependencies = [
  "ed25519-dalek",
  "ml-dsa",
- "openmls_traits 0.5.0 (git+https://github.com/grishmadev/openmls?branch=fix%2Fupdate-rusqlite)",
+ "openmls_traits",
  "p256",
  "p384",
  "rand_core 0.6.4",
  "serde",
- "tls_codec 0.5.0",
+ "tls_codec",
  "zeroize",
-]
-
-[[package]]
-name = "openmls_memory_storage"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a52c927ddb9940acb96d51aebd54b8b9c601c7119e6609622fb3f2cbe16abe3"
-dependencies = [
- "log",
- "openmls_traits 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde",
- "serde_json",
- "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -4425,7 +4411,7 @@ version = "0.5.0"
 source = "git+https://github.com/grishmadev/openmls?branch=fix%2Fupdate-rusqlite#3a723691ea20e48036a160fe664a82ce76d0aaee"
 dependencies = [
  "log",
- "openmls_traits 0.5.0 (git+https://github.com/grishmadev/openmls?branch=fix%2Fupdate-rusqlite)",
+ "openmls_traits",
  "serde",
  "serde_json",
  "thiserror 2.0.19",
@@ -4445,8 +4431,8 @@ dependencies = [
  "hpke-rs-crypto",
  "hpke-rs-rust-crypto",
  "ml-dsa",
- "openmls_memory_storage 0.5.0 (git+https://github.com/grishmadev/openmls?branch=fix%2Fupdate-rusqlite)",
- "openmls_traits 0.5.0 (git+https://github.com/grishmadev/openmls?branch=fix%2Fupdate-rusqlite)",
+ "openmls_memory_storage",
+ "openmls_traits",
  "p256",
  "p384",
  "rand_chacha 0.3.1",
@@ -4454,7 +4440,7 @@ dependencies = [
  "rand_core 0.6.4",
  "sha2 0.11.0",
  "thiserror 2.0.19",
- "tls_codec 0.5.0",
+ "tls_codec",
 ]
 
 [[package]]
@@ -4473,7 +4459,7 @@ name = "openmls_sqlite_storage"
 version = "0.2.0"
 source = "git+https://github.com/grishmadev/openmls?branch=fix%2Fupdate-rusqlite#3a723691ea20e48036a160fe664a82ce76d0aaee"
 dependencies = [
- "openmls_traits 0.5.0 (git+https://github.com/grishmadev/openmls?branch=fix%2Fupdate-rusqlite)",
+ "openmls_traits",
  "refinery",
  "rusqlite",
  "serde",
@@ -4482,20 +4468,10 @@ dependencies = [
 [[package]]
 name = "openmls_traits"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f88ccdd53448dfdbfa5b8da8ba4e527c418fdb966418172bace2e3b41eedd56"
-dependencies = [
- "serde",
- "tls_codec 0.4.2",
-]
-
-[[package]]
-name = "openmls_traits"
-version = "0.5.0"
 source = "git+https://github.com/grishmadev/openmls?branch=fix%2Fupdate-rusqlite#3a723691ea20e48036a160fe664a82ce76d0aaee"
 dependencies = [
  "serde",
- "tls_codec 0.5.0",
+ "tls_codec",
 ]
 
 [[package]]
@@ -6851,36 +6827,14 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tls_codec"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0de2e01245e2bb89d6f05801c564fa27624dbd7b1846859876c7dad82e90bf6b"
-dependencies = [
- "serde",
- "tls_codec_derive 0.4.2",
- "zeroize",
-]
-
-[[package]]
-name = "tls_codec"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "18cc98286004cea38f717e2b03d990fc774fbfd38a82720de40e5c94365067c8"
 dependencies = [
  "serde",
  "serde_bytes",
- "tls_codec_derive 0.5.0",
+ "tls_codec_derive",
  "zeroize",
-]
-
-[[package]]
-name = "tls_codec_derive"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d2e76690929402faae40aebdda620a2c0e25dd6d3b9afe48867dfd95991f4bd"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
 ]
 
 [[package]]
@@ -9194,7 +9148,6 @@ dependencies = [
  "libp2p",
  "openmls",
  "openmls_basic_credential",
- "openmls_memory_storage 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "openmls_rust_crypto",
  "rusqlite",
  "tokio",

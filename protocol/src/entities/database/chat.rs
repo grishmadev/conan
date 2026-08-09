@@ -93,14 +93,18 @@ impl ChatData for Connection {
     }
 
     fn list_chat_from(&self, peer_id: u8, limit: u8) -> Result<Vec<Chat>, Box<dyn Error>> {
-        let mut stmt = self.prepare(
-            "
-                        SELECT * FROM chat
-                        WHERE (chat.receiver_id = ?1 OR chat.sender_id = ?1)
-                        ORDER BY chat.time DESC
-                        LIMIT ?2
-                    ",
-        )?;
+        let stmt = if peer_id == 1 {
+            "SELECT * FROM chat
+            WHERE (chat.receiver_id = ?1 AND chat.sender_id = ?1)
+            ORDER BY chat.time DESC
+            LIMIT ?2"
+        } else {
+            "SELECT * FROM chat
+            WHERE (chat.receiver_id = ?1 OR chat.sender_id = ?1)
+            ORDER BY chat.time DESC
+            LIMIT ?2"
+        };
+        let mut stmt = self.prepare(stmt)?;
         let rows = stmt.query_map((peer_id, limit), |r| {
             let time: String = r.get(4)?;
             // println!("time: {time:?}");

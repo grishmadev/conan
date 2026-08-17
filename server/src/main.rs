@@ -25,7 +25,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (worker_sender, worker_receiver) = std::sync::mpsc::channel::<IPCCmd>();
     let (msg_sender, msg_receiver) = tokio::sync::broadcast::channel::<IPCRes>(100);
     let mut master = Master::build(None, worker_sender, msg_receiver);
-    let signing_key = signing_key(config.arti_key_store.clone()).await?;
     println!("Starting Master...");
     master.setup_communication(&config)?;
     let mut manager = Manager::create(msg_sender.clone(), config.clone()).await?;
@@ -34,6 +33,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("Manager Started. Establishing Message Routes..");
     manager.setup_slave_communication()?;
     println!("All Set.");
+    let signing_key = signing_key().await?;
     loop {
         if let Ok(s) = worker_receiver.recv() {
             match s {
@@ -118,14 +118,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         generate_name(3..8)
                     };
                     let dbgroup = DBGroup::new(new_group.group.group_id().to_vec(), name);
-                    // let groups = Arc::clone(&manager.groups);
-                    // let mut groups = groups.write().unwrap();
                     manager.dbconn.insert_group(dbgroup)?;
-                    // groups.insert(group.id, new_group);
                 }
 
                 IPCCmd::AddToGroup(group_idx, peer_idx) => {
-                    _ = manager.make_peer_join_group(peer_idx, group_idx).await;
+                    if let Err(err) = manager.make_peer_join_group(peer_idx, group_idx) {
+                        eprintln!("Cannot Join. {err}");
+                    }
                 }
                 _ => unimplemented!(),
             }

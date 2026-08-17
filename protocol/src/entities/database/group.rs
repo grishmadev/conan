@@ -66,7 +66,7 @@ impl ConnectionGroup for Connection {
                 })?;
                 Some(row)
             }
-            Err(e) => return Err(e.into()),
+            Err(e) => return Err(e),
             _ => None,
         };
         if let Some(res) = res {
@@ -86,24 +86,26 @@ impl ConnectionGroup for Connection {
     }
 
     fn get_group_by_group_id(&self, group_id: &[u8]) -> Result<DBGroup, rusqlite::Error> {
+        println!("getting groups from group id");
         let mut stmt = self.prepare("SELECT * FROM my_group WHERE group_id = ?1")?;
         let row = stmt.query_one(params![group_id], |r| {
             Ok(DBGroup {
-                id: r.get(0)?,
-                group_id: r.get(1)?,
-                name: r.get(2)?,
+                id: r.get("id")?,
+                group_id: r.get::<_, Vec<u8>>("group_id")?,
+                name: r.get("name")?,
             })
         })?;
         Ok(row)
     }
 
     fn get_group_by_idx(&self, idx: u8) -> Result<DBGroup, rusqlite::Error> {
+        println!("getting groups from idx");
         let mut stmt = self.prepare("SELECT * FROM my_group WHERE id = ?1")?;
-        let row = stmt.query_one(params![idx], |r| {
+        let row = stmt.query_one([idx], |r| {
             Ok(DBGroup {
-                id: r.get(0)?,
-                group_id: r.get(1)?,
-                name: r.get(2)?,
+                id: r.get("id")?,
+                group_id: r.get::<_, Vec<u8>>("group_id")?,
+                name: r.get("name")?,
             })
         })?;
         Ok(row)

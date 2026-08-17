@@ -1,30 +1,34 @@
 use openmls::prelude::OpenMlsProvider;
 use openmls_rust_crypto::OpenMlsRustCrypto;
-use openmls_sqlite_storage::SqliteStorageProvider;
+use openmls_sqlite_storage::{Codec, SqliteStorageProvider};
 use rusqlite::Connection;
 
-use crate::{database::FromConnection, extras::codec::BincodeCodec};
+use crate::{database::FromConnection, extras::codec::JsonCodec};
 
-pub struct ConanMlsProvider {
+pub struct ConanMlsProvider<C = JsonCodec>
+where
+    C: Codec,
+{
     crypto: OpenMlsRustCrypto,
-    storage: SqliteStorageProvider<BincodeCodec, Connection>,
+    storage: SqliteStorageProvider<C, Connection>,
 }
 
-impl ConanMlsProvider {
+impl<C: Codec> ConanMlsProvider<C> {
+    /// # Errors
     pub fn new(conn: &Connection) -> Result<Self, Box<dyn std::error::Error>> {
         let storage = SqliteStorageProvider::from_db(conn)?;
         let crypto = OpenMlsRustCrypto::default();
-        Ok(Self { storage, crypto })
+        Ok(Self { crypto, storage })
     }
 
-    pub fn storage(&self) -> &SqliteStorageProvider<BincodeCodec, Connection> {
+    pub fn storage(&self) -> &SqliteStorageProvider<C, Connection> {
         &self.storage
     }
 }
 
-impl OpenMlsProvider for ConanMlsProvider {
+impl<C: Codec> OpenMlsProvider for ConanMlsProvider<C> {
     type CryptoProvider = <OpenMlsRustCrypto as OpenMlsProvider>::CryptoProvider;
-    type StorageProvider = SqliteStorageProvider<BincodeCodec, Connection>;
+    type StorageProvider = SqliteStorageProvider<C, Connection>;
     type RandProvider = <OpenMlsRustCrypto as openmls::prelude::OpenMlsProvider>::RandProvider;
 
     fn crypto(&self) -> &Self::CryptoProvider {

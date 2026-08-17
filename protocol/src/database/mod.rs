@@ -1,11 +1,14 @@
 pub(crate) mod migration;
-use openmls_sqlite_storage::SqliteStorageProvider;
+use std::fs;
+
+use openmls_sqlite_storage::{Codec, SqliteStorageProvider};
 use rusqlite::Connection;
 
-use crate::{database::migration::run_is_friend_migration, extras::codec::BincodeCodec};
+use crate::{database::migration::run_is_friend_migration, extras::codec::JsonCodec};
 
 pub trait ConnectionClone {
     fn try_clone(&self) -> Result<Connection, Box<dyn std::error::Error>>;
+    fn get_openmls_path(&self) -> String;
 }
 
 impl ConnectionClone for Connection {
@@ -14,19 +17,45 @@ impl ConnectionClone for Connection {
         let conn = Connection::open(path)?;
         Ok(conn)
     }
+
+    fn get_openmls_path(&self) -> String {
+        let mut path = self
+            .path()
+            .unwrap()
+            .split('/')
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>();
+        path.pop();
+        path.push("openmls".into());
+        let path = path.join("/");
+        if !fs::exists(&path).unwrap() {
+            fs::File::create(&path).unwrap();
+        }
+        path
+    }
 }
 
-pub trait FromConnection {
+pub trait FromConnection<C: Codec> {
     fn from_db(
-        value: &Connection,
-    ) -> Result<SqliteStorageProvider<BincodeCodec, Connection>, Box<dyn std::error::Error>>;
+        conn: &Connection,
+    ) -> Result<SqliteStorageProvider<C, Connection>, Box<dyn std::error::Error>>;
 }
 
-impl FromConnection for SqliteStorageProvider<BincodeCodec, Connection> {
-    fn from_db(value: &Connection) -> Result<Self, Box<dyn std::error::Error>> {
-        let conn = value.try_clone()?;
-        let conn = Self::new(conn);
-        Ok(conn)
+impl<C: Codec> FromConnection<C> for SqliteStorageProvider<C, Connection>
+where
+    C: Codec,
+{
+    fn from_db(
+        conn: &Connection,
+    ) -> Result<SqliteStorageProvider<C, Connection>, Box<dyn std::error::Error>> {
+        // Get the DB path from the connection
+        let path = conn.path().ok_or("Cannot get path from connection")?;
+
+        // Open a new connection to the same file
+        let new_conn = Connection::open(path)?;
+        let mut storage = SqliteStorageProvider::<C, Connection>::new(new_conn);
+        storage.run_migrations()?;
+        Ok(storage)
     }
 }
 
@@ -99,8 +128,7 @@ pub fn setup_db(db_path: &str) -> Result<(), Box<dyn std::error::Error>> {
 
     run_is_friend_migration(&conn)?;
 
-    let mut storage: SqliteStorageProvider<BincodeCodec, Connection> =
-        SqliteStorageProvider::new(conn);
+    let mut storage = SqliteStorageProvider::<JsonCodec, _>::from_db(&conn)?;
     storage.run_migrations()?;
     Ok(())
 }

@@ -20,7 +20,7 @@ use tor_llcrypto::pk::ed25519::ExpandedKeypair;
 
 use crate::{
     comm::enums::IPCRes,
-    config::{ConanConfig, parse_config},
+    config::ConanConfig,
     database::{ConnectionClone, FromConnection},
     debug,
     entities::{
@@ -30,7 +30,7 @@ use crate::{
         },
         server::{manager_assistant::CommandHandler, slave::Slave},
     },
-    extras::{generate_name, mls_provider::ConanMlsProvider},
+    extras::{codec::JsonCodec, generate_name, mls_provider::ConanMlsProvider},
     mls::ConanGroup,
     msg::{Internal, Msg, PeerStatus, SlaveCmd},
     operations::{dialer_actor, signing_key},
@@ -115,7 +115,7 @@ impl Manager {
             (),
         )?;
         let (response_sender, response_receiver) = broadcast::channel::<(u8, Internal)>(100);
-        let identity_key = signing_key(config.arti_key_store.clone()).await?;
+        let identity_key = signing_key().await?;
         let provider = ConanMlsProvider::new(&conn)?;
 
         Ok(Self {
@@ -163,7 +163,7 @@ impl Manager {
                     _ = msg_sender.send(IPCRes::Notification(
                         "Someone is trying to connect.".to_string(),
                     ));
-                    println!("Client Detected.");
+                    println!("Peer Detected.");
                     tokio::spawn(async move {
                         match rendreq.accept().await {
                             Ok(mut stream) => {
@@ -298,14 +298,7 @@ impl Manager {
                 .onion_address()
                 .ok_or("Onion Address Not found.")
                 .unwrap();
-            let session = match dialer_actor(
-                config.arti_key_store.clone(),
-                &mut reader,
-                &mut writer,
-                local_hsid,
-                &peer_addr,
-            )
-            .await
+            let session = match dialer_actor(&mut reader, &mut writer, local_hsid, &peer_addr).await
             {
                 Ok(s) => s,
                 Err(e) => {
@@ -353,41 +346,44 @@ impl Manager {
         Ok(PeerStatus::Connected)
     }
 
-    pub async fn make_peer_join_group(
-        &self,
-        peer_id: u32,
-        group_idx: u32,
-    ) -> Result<(), Box<dyn Error>> {
+    /// # Errors
+    pub fn make_peer_join_group(&self, peer_id: u32, group_idx: u32) -> Result<(), Box<dyn Error>> {
+        println!("joining peer: {peer_id}, group idx: {group_idx}");
+        #[allow(clippy::cast_possible_truncation)]
         let peer_id = peer_id as u8;
+        #[allow(clippy::cast_possible_truncation)]
         let group_idx = group_idx as u8;
         let peers = Arc::clone(&self.peers);
-        let mut peers = peers.write().unwrap();
+        let Ok(mut peers) = peers.write() else {
+            return Err("Could not write to peer".into());
+        };
         #[allow(clippy::cast_possible_truncation)]
         let Some(target) = peers.get_mut(&peer_id) else {
             return Err("Cannot find target peer.".into());
         };
 
         target.command_sender.send(SlaveCmd::Msg(Msg::JoinGroup))?;
+        #[allow(clippy::cast_possible_truncation)]
         let Ok(mut groups) = self.groups.write() else {
-            return Err("Could not write to temp groups".into());
+            return Err("Could not write to groups".into());
         };
-        if !groups.contains_key(&group_idx) {
-            let mls_store = SqliteStorageProvider::from_db(&self.dbconn)?;
-            let dbgroup = self.dbconn.get_group_by_idx(group_idx)?;
-            // Loading group from Mls Storage
-            let mlsgroup =
-                MlsGroup::load(&mls_store, &GroupId::from_slice(&dbgroup.group_id))?.unwrap();
-            let config = parse_config()?;
-            let key = signing_key(config.arti_key_store).await?;
-            let mut group = ConanGroup::build(&key)?;
-            // Assigning group to ConanGroup
-            group.group = mlsgroup;
-            #[allow(clippy::cast_possible_truncation)]
-            // Loading it in memory
-            groups.insert(group_idx, group);
-            let mut invitation = self.invitation_memory.write().unwrap();
-            invitation.insert(peer_id, dbgroup.group_id);
-        }
+        let mls_store = SqliteStorageProvider::<JsonCodec, _>::from_db(&self.dbconn)?;
+        let dbgroup = self.dbconn.get_group_by_idx(group_idx)?;
+        // Loading group from Mls Storage
+        let group_id = GroupId::from_slice(&dbgroup.group_id);
+        println!("dbgroup: {dbgroup:?}");
+        let mlsgroup = MlsGroup::load(&mls_store, &group_id)?.ok_or("Could not load group")?;
+        let mut group = ConanGroup::build(&self.identity_key)?;
+        // Assigning group to ConanGroup
+        group.group = mlsgroup;
+        // Loading it in memory
+        groups.insert(group_idx, group);
+        println!("WRITING TO INVITATION MEMORY");
+        let Ok(mut invitation) = self.invitation_memory.write() else {
+            return Err("Could not write to invitation".into());
+        };
+        invitation.insert(peer_id, dbgroup.group_id);
+        println!("WROTE TO INVITATION MEMORY");
         Ok(())
     }
     /// Used to setup Slave to Master communication Pipeline
@@ -399,7 +395,7 @@ impl Manager {
         let groups = Arc::clone(&self.groups);
         let invitation_memory = Arc::clone(&self.invitation_memory);
         let dbconn = self.dbconn.try_clone()?;
-        let config = self.config.clone();
+        // let config = self.config.clone();
         let expanded_key =
             ExpandedKeypair::from_secret_key_bytes(self.identity_key.to_secret_key_bytes())
                 .ok_or("Cannot extract expanded key")?;
@@ -420,15 +416,11 @@ impl Manager {
                     Internal::Msg(msg) => match msg {
                         Msg::Text(text) => cmdhandler.handle_msg_text(peer_idx, text),
                         Msg::Verified => cmdhandler.handle_msg_verified(),
-                        Msg::JoinGroup => {
-                            cmdhandler.handle_msg_convert(peer_idx, config.arti_key_store.clone())
-                        }
+                        Msg::JoinGroup => cmdhandler.handle_msg_convert(peer_idx),
                         Msg::KeyPackage(package) => {
                             cmdhandler.handle_msg_keypackage(peer_idx, &package)
                         }
-                        Msg::Welcome(welcome, tree) => {
-                            cmdhandler.handle_msg_welcome(peer_idx, welcome, tree)
-                        }
+                        Msg::Welcome(welcome) => cmdhandler.handle_msg_welcome(peer_idx, welcome),
                         Msg::GroupError(err) => cmdhandler.handle_msg_group_error(peer_idx, err),
                         Msg::GroupVerified(group_id) => {
                             cmdhandler.handle_msg_group_verified(peer_idx, &group_id)

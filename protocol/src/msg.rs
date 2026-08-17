@@ -34,7 +34,7 @@ pub enum Msg {
     SignedAndPublicKey(Vec<u8>, [u8; 32], [u8; 32]),
     Verified,
     JoinGroup,
-    Welcome(Welcome, RatchetTreeIn),
+    Welcome(Welcome),
     GroupSuccess,
     KeyPackage(Vec<u8>),
     GroupError(String),

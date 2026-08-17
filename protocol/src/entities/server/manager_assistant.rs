@@ -14,20 +14,19 @@ use crate::{
         },
         server::slave::Slave,
     },
-    extras::{codec::BincodeCodec, generate_name, mls_provider::ConanMlsProvider},
+    extras::{codec::JsonCodec, generate_name, mls_provider::ConanMlsProvider},
     mls::ConanGroup,
     msg::{Msg, SlaveCmd},
-    operations::signing_key,
 };
 use openmls::{
     group::GroupId,
     prelude::{
         DeserializeBytes, KeyPackage, MlsMessageBodyOut, MlsMessageIn, ProcessedMessageContent,
-        RatchetTreeIn, SignatureScheme, Welcome, tls_codec::Serialize,
+        RatchetTreeIn, Welcome, tls_codec::Serialize,
     },
 };
 use openmls_basic_credential::SignatureKeyPair;
-use openmls_sqlite_storage::SqliteStorageProvider;
+use openmls_sqlite_storage::{Codec, SqliteStorageProvider};
 use rusqlite::Connection;
 use std::{
     collections::HashMap,
@@ -36,16 +35,20 @@ use std::{
 };
 use tokio::sync::broadcast;
 use tor_llcrypto::pk::ed25519::ExpandedKeypair;
-pub struct CommandHandler {
+pub struct CommandHandler<C = JsonCodec>
+where
+    C: Codec,
+{
     peers: Arc<RwLock<HashMap<u8, Slave>>>,
     groups: Arc<RwLock<HashMap<u8, ConanGroup>>>,
     dbconn: Connection,
     msg_sen: broadcast::Sender<IPCRes>,
-    openmls_store: SqliteStorageProvider<BincodeCodec, Connection>,
+    openmls_store: SqliteStorageProvider<C, Connection>,
     /// here `u8` refers to peers associated with the given group id before joining
     invitation_memory: Arc<RwLock<HashMap<u8, Vec<u8>>>>,
     identity_key: ExpandedKeypair,
     provider: ConanMlsProvider,
+    signer: SignatureKeyPair,
 }
 impl CommandHandler {
     pub fn new(
@@ -58,6 +61,7 @@ impl CommandHandler {
         provider: ConanMlsProvider,
     ) -> Self {
         let openmls_store = SqliteStorageProvider::from_db(&dbconn).unwrap();
+        let (signer, _, _) = ConanGroup::signer_from_expanded_key(&expanded_key);
         Self {
             peers,
             groups,
@@ -67,6 +71,7 @@ impl CommandHandler {
             invitation_memory,
             identity_key: expanded_key,
             provider,
+            signer,
         }
     }
     pub fn handle_msg_text(&self, idx: u8, text: String) -> Result<(), Box<dyn Error>> {
@@ -96,33 +101,13 @@ impl CommandHandler {
         Ok(())
     }
 
-    pub fn handle_msg_convert(
-        &self,
-        peer_idx: u8,
-        arti_path: String,
-    ) -> Result<(), Box<dyn Error>> {
+    pub fn handle_msg_convert(&self, peer_idx: u8) -> Result<(), Box<dyn Error>> {
         println!("got convert to group");
-        let signer = if let Some(signer) = SignatureKeyPair::read(
-            &self.openmls_store,
-            &self.identity_key.public().to_bytes(),
-            SignatureScheme::ED25519,
-        ) {
-            signer
-        } else {
-            let signer = SignatureKeyPair::from_raw(
-                SignatureScheme::ED25519,
-                self.identity_key.to_secret_key_bytes().to_vec(),
-                self.identity_key.public().to_bytes().to_vec(),
-            );
-            signer.store(&self.openmls_store)?;
-            signer
-        };
+        let (signer, _, _) = ConanGroup::signer_from_expanded_key(&self.identity_key);
         let peers = Arc::clone(&self.peers);
         let provider = ConanMlsProvider::new(&self.dbconn)?;
         tokio::spawn(async move {
-            let signing_key = signing_key(arti_path).await.unwrap();
-            let new_group = ConanGroup::build(&signing_key).unwrap();
-            let key_package = new_group.key_package_bundle(&signer, &provider).unwrap();
+            let key_package = ConanGroup::key_package_bundle(&signer, &provider).unwrap();
             let Ok(mut peers) = peers.write() else {
                 println!("Cannot write to peers.");
                 return;
@@ -132,7 +117,6 @@ impl CommandHandler {
                 return;
             };
             let key_package_ser = to_bytes(key_package.key_package());
-            // let secure_idx = direct_encrypt(&key, &(peer_idx.to_be_bytes())).unwrap();
             peer.command_sender
                 .send(SlaveCmd::Msg(Msg::KeyPackage(key_package_ser)))
                 .unwrap();
@@ -151,9 +135,11 @@ impl CommandHandler {
             }
         }
         let invitation = self.invitation_memory.write().unwrap();
+
         for (idx, _) in invitation.iter() {
             println!("invite: {idx}, peer_idx: {peer_idx}");
         }
+
         let Some(group_id) = invitation.get(&peer_idx) else {
             return Err("No Group found at given Index".into());
         };
@@ -162,39 +148,38 @@ impl CommandHandler {
             .iter_mut()
             .find(|f| f.1.group.group_id().as_slice() == group_id)
         else {
-            // TODO: need to change later
-            return Ok(());
+            return Err("No Group found at given group id".into());
         };
-        let (_commit, welcome) = target_group.add_members(&key_package, &self.provider)?;
+        println!("check 1");
+        let (_commit, welcome) =
+            target_group.add_members(&key_package, &self.provider, &self.signer)?;
+        println!("check 2");
         let mut peers = self.peers.write().unwrap();
         let Some(peer) = peers.get_mut(&peer_idx) else {
             return Err("No peer found at given Index".into());
         };
+        println!("check 3");
         let MlsMessageBodyOut::Welcome(welcome) = welcome.body().clone() else {
             return Err("No Welcome found. Ignoring.".into());
         };
-        let tree: RatchetTreeIn = target_group.group.export_ratchet_tree().into();
+        println!("check 4");
         peer.command_sender
-            .send(SlaveCmd::Msg(Msg::Welcome(welcome, tree)))?;
+            .send(SlaveCmd::Msg(Msg::Welcome(welcome)))?;
         Ok(())
     }
 
-    pub fn handle_msg_welcome(
-        &self,
-        peer_idx: u8,
-        welcome: Welcome,
-        tree: RatchetTreeIn,
-    ) -> Result<(), Box<dyn Error>> {
+    pub fn handle_msg_welcome(&self, peer_idx: u8, welcome: Welcome) -> Result<(), Box<dyn Error>> {
         println!("group welcome");
         let mut peers = self.peers.write().unwrap();
         let Some(peer) = peers.get_mut(&peer_idx) else {
             println!("No peer found at given index");
             return Err("No peer found at given index".into());
         };
-        let mut grp = ConanGroup::build(&self.identity_key)?;
-        let mls_grp = ConanGroup::join_group(welcome, tree)?;
+        println!("CHECK 1");
+        let mls_grp = ConanGroup::join_group(&self.provider, welcome)?;
+        println!("CHECK 2");
         let grp_id = mls_grp.group_id().to_vec();
-        grp.group = mls_grp;
+        let grp = ConanGroup::from_mls(mls_grp);
 
         let grp_name = generate_name(3..8);
         let dbgroup = DBGroup::new(grp_id.clone(), grp_name);
@@ -220,16 +205,17 @@ impl CommandHandler {
     ) -> Result<(), Box<dyn Error>> {
         println!("group verified");
         {
+            // removing from invitation memory, because the exchange is complete
             let mut invitation = self.invitation_memory.write().unwrap();
-            invitation.remove(&peer_idx);
+            let inv = invitation.remove(&peer_idx);
+            println!("removed {peer_idx}: {inv:?}");
         }
         let mut groups = self.groups.write().unwrap();
         let Some((_grp_idx, grp)) = groups
             .iter_mut()
             .find(|g| g.1.group.group_id().as_slice() == group_id)
         else {
-            // TODO: return error
-            return Ok(());
+            return Err("Cannot find targetted group".into());
         };
         grp.group.merge_pending_commit(&self.provider)?;
         // the group is already saved in initializers database
@@ -252,7 +238,7 @@ impl CommandHandler {
             };
             let message = grp
                 .group
-                .create_message(&self.provider, &grp.signer, text)
+                .create_message(&self.provider, &self.signer, text)
                 .unwrap();
             let message_ser = message.tls_serialize_detached()?;
             peer.command_sender.send(SlaveCmd::Msg(Msg::GroupMessage(

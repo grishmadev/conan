@@ -1,3 +1,4 @@
+use crate::config::parse_config;
 use crate::crypto::aead::{self, EncryptedMessage, MessageKey};
 use crate::crypto::ratchet::{RatchetMessage, RatchetSession};
 use crate::{constants::ARTI_PRIVATE_KEY, msg::Msg};
@@ -44,8 +45,9 @@ fn handshake_decrypt(
 /// Used to retrieve signing key for self tor server
 /// # Errors
 /// # Panics
-pub async fn signing_key(arti_key_store: String) -> Result<ExpandedKeypair, Box<dyn Error>> {
-    let mut key_store_path = arti_key_store;
+pub async fn signing_key() -> Result<ExpandedKeypair, Box<dyn Error>> {
+    let config = parse_config()?;
+    let mut key_store_path = config.arti_key_store;
     key_store_path.push_str(ARTI_PRIVATE_KEY);
     let mut signing_file = File::open(key_store_path)?;
     let mut content = String::new();
@@ -145,7 +147,6 @@ pub fn derive_bob_ratchet_key(shared_secret: &[u8; 32]) -> (StaticSecret, Public
 /// # Errors
 /// # Panics
 pub async fn listener_actor(
-    arti_key_store: String,
     reader: &mut ReadHalf<DataStream>,
     writer: &mut WriteHalf<DataStream>,
     assign_remote_hsid: &mut Option<String>,
@@ -162,7 +163,7 @@ pub async fn listener_actor(
     };
     let local_private_key = EphemeralSecret::random_from_rng(OsRng);
     let local_public_key = PublicKey::from(&local_private_key).to_bytes();
-    let signing_key = signing_key(arti_key_store).await?;
+    let signing_key = signing_key().await?;
 
     // creating signature using local ed25519 private key and stacking local and remote
     // ephemeral keys
@@ -246,7 +247,6 @@ pub async fn listener_actor(
 /// # Panics
 /// # Errors
 pub async fn dialer_actor<R, W>(
-    arti_key_store: String,
     reader: &mut ReadHalf<R>,
     writer: &mut WriteHalf<W>,
     local_hsid: HsId,
@@ -284,7 +284,7 @@ where
     let Some(shared_secret_key) = ssk else {
         return Err("Couldn't get Shared Secret Key.".into());
     };
-    let signing_key = signing_key(arti_key_store).await?;
+    let signing_key = signing_key().await?;
 
     // preparing message containing signed combined key of remote and local x25519 public key
     // and remote and local ed25519 public key on an encrypted channel using shared secret

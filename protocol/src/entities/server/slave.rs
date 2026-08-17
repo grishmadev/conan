@@ -134,7 +134,6 @@ impl Slave {
             .ok_or("Could not get Onion Address")?;
         let mut remote_onion_key = None;
         let (session, _remote_hsid) = listener_actor(
-            self.config.arti_key_store.clone(),
             reader,
             self.writer.as_mut().unwrap(),
             &mut remote_onion_key,

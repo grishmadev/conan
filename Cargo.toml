@@ -13,16 +13,16 @@ repository = "https://github.com/grishmadev/conan"
 [workspace.dependencies]
 conan-protocol = { path = "protocol/", version = "1.0.0" }
 tokio = { version = "1.52.3", features = ["full"] }
-arti-client = { version = "0.44.0", features = [
+arti-client = { version = "0.45.0", features = [
   "onion-service-client",
   "onion-service-service",
 ] }
 
-tor-hsservice = "0.44.0"
-tor-rtcompat = "0.44.0"
-tor-cell = "0.44.0"
-tor-hscrypto = "0.44.0"
-tor-llcrypto = "0.44.0"
+tor-hsservice = "0.45.0"
+tor-rtcompat = "0.45.0"
+tor-cell = "0.45.0"
+tor-hscrypto = "0.45.0"
+tor-llcrypto = "0.45.0"
 tokio-rustls = "0.26.4"
 rustls = "0.23.41"
 tracing-subscriber = "0.3.23"
@@ -48,18 +48,18 @@ config = "0.15.25"
 ssh-encoding = { version = "0.3.0", features = ["alloc"] }
 base64 = "0.23.0"
 # Cannot update to latest version because of compatibility issues with arti_client's & openmls' database version
-rusqlite = "0.36.0"
+rusqlite = "0.37.0"
 notify-rust = "4.18.0"
 chrono = "0.4.45"
 zeroize = { version = "1", features = ["derive"] }
 thiserror = "2"
 bs58 = "0.5"
 hex = "0.4"
-openmls = { git = "https://github.com/grishmadev/openmls", branch = "fix/update-rusqlite" }
-openmls_rust_crypto = { git = "https://github.com/grishmadev/openmls", branch = "fix/update-rusqlite" }
-openmls_basic_credential = { git = "https://github.com/grishmadev/openmls", branch = "fix/update-rusqlite" }
+openmls = "0.9.0-rc.1"
+openmls_rust_crypto = "0.6.0-rc.1"
+openmls_basic_credential = "0.6.0-rc.1"
 libp2p = { version = "0.56.0", features = ["gossipsub", "yamux", "noise"] }
-openmls_sqlite_storage = { git = "https://github.com/grishmadev/openmls", branch = "fix/update-rusqlite" }
+openmls_sqlite_storage = "0.3.0-rc.1"
 
 [profile.release]
 lto = true

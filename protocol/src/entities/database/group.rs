@@ -51,7 +51,7 @@ impl ConnectionGroup for Connection {
     fn insert_group(&self, group: DBGroup) -> Result<DBGroup, rusqlite::Error> {
         if let Ok(dbgroup) = self.get_group_by_group_id(&group.group_id) {
             return Ok(dbgroup);
-        };
+        }
         let mut stmt = self.prepare("INSERT INTO my_group (group_id, name) VALUES (?1, ?2)")?;
         let res = match stmt.execute(params![group.group_id, group.name]) {
             Ok(s) if s > 0 => {

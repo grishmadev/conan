@@ -60,6 +60,7 @@ openmls_rust_crypto = "0.6.0-rc.1"
 openmls_basic_credential = "0.6.0-rc.1"
 libp2p = { version = "0.56.0", features = ["gossipsub", "yamux", "noise"] }
 openmls_sqlite_storage = "0.3.0-rc.1"
+color-eyre = "0.6.5"
 
 [profile.release]
 lto = true

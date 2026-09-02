@@ -38,7 +38,7 @@ pub trait PeerData {
     fn get_peer_from_addr(&self, addr: &str) -> Result<Option<Peer>, Box<dyn Error>>;
     /// Pulls peer Info from Local Database
     /// # Errors
-    fn get_peer_from_id(&self, id: u32) -> Result<Option<Peer>, Box<dyn Error>>;
+    fn get_peer_from_id(&self, id: u16) -> Result<Option<Peer>, Box<dyn Error>>;
     /// Inserts peers to Local Database
     /// # Errors
     fn insert_peer(&self, peer: Peer) -> Result<Peer, Box<dyn Error>>;
@@ -98,7 +98,7 @@ impl PeerData for Connection {
         Ok(peer)
     }
 
-    fn get_peer_from_id(&self, id: u32) -> Result<Option<Peer>, Box<dyn Error>> {
+    fn get_peer_from_id(&self, id: u16) -> Result<Option<Peer>, Box<dyn Error>> {
         let mut stmt = self.prepare("SELECT * FROM peer WHERE id = ?1")?;
         let result = stmt.query_row([&id], |r| {
             Ok(Peer {

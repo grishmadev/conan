@@ -3,33 +3,54 @@ use std::error::Error;
 use bincode::{Decode, Encode, config};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::entities::database::{chat::Chat, group::DBGroup, group_chat::GroupChat, peer::Peer};
+use crate::entities::database::{chat::Chat, group::DBGroup, peer::Peer};
+
+pub struct Chats {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode)]
 #[non_exhaustive]
 pub enum IPCCmd {
+    /// Command to start server
     StartServer,
+    /// Get list of all chats with peers
+    PingChat,
+    /// Basic Tick
+    Tick,
+    /// Connect with given peer (peer address, port)
     Connect(String, u16),
+    /// Send Text to Peer (peer index, text)
     Text(u8, String),
+    /// Get list of all peers
     PeerList,
+    /// Get Chat List for a given contact
     ChatList {
         peer_id: u8,
         msg_amount: u8,
     },
-    PingChat,
-    Tick,
+    /// Get Group Chats for a given group
+    GroupChatList {
+        /// Group id
+        group_idx: u8,
+        /// Last amount of messages to get
+        msg_amount: u8,
+    },
+    /// Renames a Peer with provided name
     RenamePeer(u8, String),
+    /// Send Text to Group (group index, text)
+    GroupText(u8, String),
     /// Deletes peer with provided database idx
     DeletePeer(u32),
     /// Deletes group with provided database idx
     DeleteGroup(u32),
     /// Creates a new group with provided name or generate a random name
     NewGroup(Option<String>),
-    /// Add member to a group
-    /// first u32 for database idx of group
-    /// second u32 for database idx of peer
+    /// Add member to a group (group index, peer index)
     AddToGroup(u32, u32),
+    /// Get List of groups
     GroupList,
+    /// Connect to a group given database index
+    GroupConnect(u16),
+    InitiateGroup(Vec<u8>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Serialize, Deserialize)]
@@ -47,7 +68,7 @@ pub enum IPCRes {
     DeletedGroup(u32),
     RenamedPeer(u32),
     GroupList(Vec<DBGroup>),
-    GroupChat { group_id: u8, chats: Vec<GroupChat> },
+    GroupChatList { group_idx: u8, chats: Vec<Chat> },
 }
 
 /// # Panics

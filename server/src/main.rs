@@ -5,6 +5,7 @@ use conanprotocol::{
         database::{
             chat::{Chat, ChatData},
             group::{ConnectionGroup, DBGroup},
+            group_chat::ConnectionGroupChat,
             peer::PeerData,
         },
         server::{manager::Manager, master::Master},
@@ -14,6 +15,7 @@ use conanprotocol::{
     msg::{Msg, SlaveCmd},
     operations::signing_key,
 };
+use openmls::group::MlsGroup;
 use std::{
     error::Error,
     sync::{Arc, atomic::Ordering},
@@ -21,13 +23,14 @@ use std::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    color_eyre::install()?;
     let config = parse_config()?;
     let (worker_sender, worker_receiver) = std::sync::mpsc::channel::<IPCCmd>();
     let (msg_sender, msg_receiver) = tokio::sync::broadcast::channel::<IPCRes>(100);
-    let mut master = Master::build(None, worker_sender, msg_receiver);
+    let mut master = Master::build(None, worker_sender.clone(), msg_receiver);
     println!("Starting Master...");
     master.setup_communication(&config)?;
-    let mut manager = Manager::create(msg_sender.clone(), config.clone()).await?;
+    let mut manager = Manager::create(msg_sender.clone(), config.clone(), worker_sender).await?;
     println!("Starting Manager..");
     manager.init_server()?;
     println!("Manager Started. Establishing Message Routes..");
@@ -45,11 +48,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     msg_sender.send(IPCRes::ServerStarted(started))?;
                 }
                 IPCCmd::Connect(addr, port) => {
-                    if let Err(e) = manager.connect_as_dialer((addr.clone(), port)) {
+                    println!("addr to connect: {addr}:{port}");
+                    if let Err(e) = manager.connect_as_dialer(addr, port).await {
                         return Err(format!("Cannot connect as Dialer:\n{e}").into());
                     }
                 }
                 IPCCmd::Text(idx, text) => {
+                    println!("receiver idx: {idx}");
                     if idx == 1 {
                         let chat = Chat::chat_to_send(&text, 1);
                         manager.dbconn.insert_chat(chat)?;
@@ -105,19 +110,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         .msg_sender
                         .send(IPCRes::ChatList { peer_id, chats })?;
                 }
-                IPCCmd::GroupList => {
-                    let groups = manager.dbconn.list_groups()?;
-                    manager.msg_sender.send(IPCRes::GroupList(groups))?;
-                }
 
                 IPCCmd::NewGroup(name) => {
-                    let new_group = ConanGroup::build(&signing_key)?;
+                    let self_link = manager
+                        .dbconn
+                        .get_peer_from_id(1)?
+                        .ok_or("Cannot find self link")?
+                        .address;
+                    let new_group = MlsGroup::build(&signing_key, &self_link)?;
                     let name = if let Some(name) = name {
                         name
                     } else {
                         generate_name(3..8)
                     };
-                    let dbgroup = DBGroup::new(new_group.group.group_id().to_vec(), name);
+                    let dbgroup = DBGroup::new(new_group.group_id().to_vec(), name);
                     manager.dbconn.insert_group(dbgroup)?;
                 }
 
@@ -125,6 +131,76 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     if let Err(err) = manager.make_peer_join_group(peer_idx, group_idx) {
                         eprintln!("Cannot Join. {err}");
                     }
+                }
+
+                IPCCmd::GroupConnect(idx) => {
+                    let mut group = manager.get_mls_group_from_idx(idx as u8)?;
+                    manager.connect_to_group(&mut group).await?;
+                    manager.groups.write().unwrap().insert(idx as u8, group);
+                }
+
+                IPCCmd::InitiateGroup(grp_id) => {
+                    println!("initiating group from this side");
+                    let dbgroup = manager.dbconn.get_group_by_group_id(&grp_id)?;
+                    let mut mlsgrp = manager.get_mls_group_from_idx(dbgroup.id)?;
+                    manager.connect_to_group(&mut mlsgrp).await?;
+                    // let peers = manager.peers.write().unwrap();
+                    // let members = mlsgrp.get_members()?;
+                    // for m in &members {
+                    // let peer = if let Some(peer) = self.dbconn.get_peer_from_addr(&m)? {
+                    //     peer
+                    // } else {
+                    //     let new_peer = Peer::build(&generate_name(3..10), &m, false);
+                    //     let peer = self.dbconn.insert_peer(new_peer)?;
+                    //     peer
+                    // };
+                    manager.connect_to_group(&mut mlsgrp).await?;
+                    // if peers.contains_key(&(peer.id as u8)) {
+                    // }
+                    // }
+                    manager.groups.write().unwrap().insert(dbgroup.id, mlsgrp);
+                }
+
+                IPCCmd::GroupList => {
+                    let groups = manager.dbconn.list_groups()?;
+                    manager.msg_sender.send(IPCRes::GroupList(groups))?;
+                }
+
+                IPCCmd::GroupChatList {
+                    group_idx,
+                    msg_amount,
+                } => {
+                    let chats = manager
+                        .dbconn
+                        .get_chats_by_group_idx(group_idx, msg_amount)?;
+                    let mut res = vec![];
+                    for c in chats {
+                        let chat = Chat {
+                            id: u32::from(c.id),
+                            sender_id: u32::from(c.sender_id),
+                            receiver_id: 1,
+                            data: c.data,
+                            time: c.time,
+                        };
+                        res.push(chat);
+                    }
+                    manager.msg_sender.send(IPCRes::GroupChatList {
+                        group_idx,
+                        chats: res,
+                    })?;
+                }
+
+                IPCCmd::GroupText(grp_idx, text) => {
+                    println!("Group Chat to send");
+                    let mut groups = manager.groups.write().unwrap();
+                    groups.iter().for_each(|g| {
+                        println!("group idx: {}", g.0);
+                    });
+                    println!("target group idx: {grp_idx}");
+                    let Some(group) = groups.get_mut(&grp_idx) else {
+                        continue;
+                    };
+                    manager.send_msg(group, &text)?;
                 }
                 _ => unimplemented!(),
             }

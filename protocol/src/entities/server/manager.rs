@@ -1,6 +1,9 @@
 use arti_client::{BootstrapBehavior, TorClient, TorClientConfig, config::CfgPath};
 use futures::{StreamExt, stream::BoxStream};
-use openmls::group::{GroupId, MlsGroup};
+use openmls::{
+    group::{GroupId, MlsGroup},
+    prelude::tls_codec::Serialize,
+};
 use openmls_sqlite_storage::SqliteStorageProvider;
 use rusqlite::Connection;
 use safelog::DisplayRedacted;
@@ -19,13 +22,14 @@ use tor_hsservice::{HsNickname, OnionServiceConfig, RendRequest, RunningOnionSer
 use tor_llcrypto::pk::ed25519::ExpandedKeypair;
 
 use crate::{
-    comm::enums::IPCRes,
+    comm::enums::{IPCCmd, IPCRes},
     config::ConanConfig,
-    database::{ConnectionClone, FromConnection},
+    database::ConnectionClone,
     debug,
     entities::{
         database::{
             group::ConnectionGroup,
+            group_chat::{ConnectionGroupChat, GroupChat},
             peer::{Peer, PeerData},
         },
         server::{manager_assistant::CommandHandler, slave::Slave},
@@ -53,7 +57,7 @@ pub struct Manager {
     /// `HashMap` for tracking active peers
     pub peers: Arc<RwLock<HashMap<u8, Slave>>>,
     /// `HashMap` for tracking active Groups
-    pub groups: Arc<RwLock<HashMap<u8, ConanGroup>>>,
+    pub groups: Arc<RwLock<HashMap<u8, MlsGroup>>>,
     /// `HashMap` for tracking temporary Groups
     /// here `u8` refers to peers (not group) associated with the given group
     pub invitation_memory: Arc<RwLock<HashMap<u8, Vec<u8>>>>,
@@ -346,6 +350,14 @@ impl Manager {
         Ok(PeerStatus::Connected)
     }
 
+    pub fn get_mls_group_from_idx(&self, idx: u8) -> Result<MlsGroup, Box<dyn Error>> {
+        let dbgrp = self.dbconn.get_group_by_idx(idx)?;
+        let storage = SqliteStorageProvider::<JsonCodec, _>::new(&self.dbconn);
+        let mlsgrp = MlsGroup::load(&storage, &GroupId::from_slice(&dbgrp.group_id))?
+            .ok_or("Cannot find MlsGroup")?;
+        Ok(mlsgrp)
+    }
+
     /// # Errors
     pub fn make_peer_join_group(&self, peer_id: u32, group_idx: u32) -> Result<(), Box<dyn Error>> {
         println!("joining peer: {peer_id}, group idx: {group_idx}");
@@ -367,15 +379,13 @@ impl Manager {
         let Ok(mut groups) = self.groups.write() else {
             return Err("Could not write to groups".into());
         };
-        let mls_store = SqliteStorageProvider::<JsonCodec, _>::from_db(&self.dbconn)?;
         let dbgroup = self.dbconn.get_group_by_idx(group_idx)?;
-        // Loading group from Mls Storage
-        let group_id = GroupId::from_slice(&dbgroup.group_id);
-        println!("dbgroup: {dbgroup:?}");
-        let mlsgroup = MlsGroup::load(&mls_store, &group_id)?.ok_or("Could not load group")?;
-        let mut group = ConanGroup::build(&self.identity_key)?;
-        // Assigning group to ConanGroup
-        group.group = mlsgroup;
+        let self_link = self
+            .dbconn
+            .get_peer_from_id(1)?
+            .ok_or("Cannot find self link")?
+            .address;
+        let group = MlsGroup::build(&self.identity_key, &self_link)?;
         // Loading it in memory
         groups.insert(group_idx, group);
         println!("WRITING TO INVITATION MEMORY");
@@ -438,6 +448,77 @@ impl Manager {
                 }
             }
         });
+        Ok(())
+    }
+
+    pub async fn connect_to_group(&mut self, group: &mut MlsGroup) -> Result<(), Box<dyn Error>> {
+        // getting all the members embedded in the group
+        let members = group.get_members()?;
+        // creating a list to remember all the members not connected (yet).
+        let mut members_to_connect = vec![];
+        for m in members {
+            // getting peer from db or creating a new one in case there isn't one
+            let peer = if let Some(peer) = self.dbconn.get_peer_from_addr(&m)? {
+                peer
+            } else {
+                let new_peer = Peer::build(&generate_name(3..10), &m, false);
+                self.dbconn.insert_peer(new_peer)?
+            };
+            let peers = self.peers.read().unwrap();
+            // adding to created list if not already connected
+            if !peers.contains_key(&(peer.id as u8)) {
+                members_to_connect.push(peer.clone());
+            }
+        }
+        for peer in members_to_connect {
+            println!("connect member");
+            if let Err(e) = self.connect_as_dialer(peer.address, 80).await {
+                eprintln!("Error while connecting to group member.. {e:?}");
+            } else {
+                println!("Connected to group member. inserting: {}", peer.id);
+                let peers = self.peers.write().unwrap();
+                if let Some(peer) = peers.get(&(peer.id as u8)) {
+                    peer.command_sender
+                        .send(SlaveCmd::Msg(Msg::InitiateGroup(group.group_id().to_vec())))?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn send_msg(&self, grp: &mut MlsGroup, text: &str) -> Result<(), Box<dyn Error>> {
+        let (signer, _, _) = MlsGroup::signer_from_expanded_key(&self.identity_key);
+        let msg = grp.create_message(&self.provider, &signer, text.as_bytes())?;
+        let peers = self.peers.read().unwrap();
+        let members = grp.get_members()?;
+        println!("list members: {members:#?}");
+        for m in &members {
+            // fanning out to all active members
+            let Some(peer) = self.dbconn.get_peer_from_addr(m)? else {
+                println!("Could not get targetted member.");
+                continue;
+            };
+            if let Some(peer) = peers.get(&(peer.id as u8)) {
+                println!("sending to group");
+                peer.command_sender.send(SlaveCmd::Msg(Msg::GroupMessage(
+                    grp.group_id().to_vec(),
+                    msg.tls_serialize_detached()?,
+                )))?;
+            } else {
+                println!("Targetted Peer not found.");
+            }
+        }
+        let dbgrp = self
+            .dbconn
+            .get_group_by_group_id(&grp.group_id().to_vec())?;
+        let chat = GroupChat {
+            id: 0,
+            group_id: dbgrp.id,
+            data: text.into(),
+            sender_id: 1,
+            time: String::new(),
+        };
+        self.dbconn.insert_group_chat(chat)?;
         Ok(())
     }
 }

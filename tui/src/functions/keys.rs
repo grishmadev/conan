@@ -167,75 +167,91 @@ impl Keys for App {
                 }
             }
             KeyCode::Enter => {
-                let target = if let Some(idx) = self.contact_idx.selected()
-                    && let Some(target) = self.contacts.get(idx)
-                {
-                    Some((target.id, target.address.clone()))
-                } else {
-                    None
-                };
-                let Some((id, addr)) = target else {
+                let (is_peer, Some(idx)) = self.current_contact() else {
                     return Ok(());
                 };
+                // let target = if let Some(idx) = self.contact_idx.selected()
+                //     && let Some(target) = self.contacts.get(idx)
+                // {
+                //     Some((target.id, target.address.clone()))
+                // } else {
+                //     None
+                // };
+                // let Some((id, addr)) = target else {
+                //     return Ok(());
+                // };
                 match self.tab {
                     Tab::Contact => {
-                        let (true, Some(idx)) = self.current_contact() else {
-                            return Ok(());
-                        };
-                        let Some(peer) = self.contacts.get(idx) else {
-                            return Ok(());
-                        };
-                        if peer.id == 1 {
-                            // Self: we don't need loading screen, just load the chat
-                            #[allow(clippy::cast_possible_truncation)]
+                        if is_peer {
+                            // Connecting to a peer
+                            let Some(peer) = self.contacts.get(idx) else {
+                                return Ok(());
+                            };
+                            if peer.id == 1 {
+                                // Self: we don't need loading screen, just load the chat
+                                #[allow(clippy::cast_possible_truncation)]
+                                self.send(IPCCmd::ChatList {
+                                    peer_id: idx as u8,
+                                    msg_amount: 50,
+                                })
+                                .await?;
+                                self.next_tab();
+                                return Ok(());
+                            }
+                            self.active_screen = Screen::LoadingScreen {
+                                loading_text: "Connecting...".into(),
+                                mode: LoadingMode::NewPeer,
+                            };
+                            self.send(IPCCmd::Connect(peer.address.clone(), 80)).await?;
                             self.send(IPCCmd::ChatList {
-                                peer_id: id as u8,
+                                #[allow(clippy::cast_possible_truncation)]
+                                peer_id: idx as u8,
                                 msg_amount: 50,
                             })
                             .await?;
-                            self.next_tab();
-                            return Ok(());
+                        } else {
+                            let Some(grp) = self.groups.get(idx) else {
+                                return Ok(());
+                            };
+                            self.send(IPCCmd::GroupConnect(u16::from(grp.id))).await?;
                         }
-                        self.active_screen = Screen::LoadingScreen {
-                            loading_text: "Connecting...".into(),
-                            mode: LoadingMode::NewPeer,
-                        };
-                        self.send(IPCCmd::Connect(addr, 80)).await?;
-                        self.send(IPCCmd::ChatList {
-                            #[allow(clippy::cast_possible_truncation)]
-                            peer_id: id as u8,
-                            msg_amount: 50,
-                        })
-                        .await?;
                     }
                     Tab::Chat => {
-                        if self.chat_buf.trim().is_empty() {
+                        let text = self.chat_buf.trim();
+                        if text.is_empty() {
                             return Ok(()); // prevent empty messages
                         }
-                        #[allow(clippy::cast_possible_truncation)]
-                        self.send(IPCCmd::Text(id as u8, self.chat_buf.trim().into()))
-                            .await?;
-                        let Some(selected) = self.contact_idx.selected() else {
-                            println!("No chat selected.");
-                            return Ok(());
-                        };
-                        let Some(current_peer) = self.contacts.get(selected) else {
-                            println!("Peer not found.");
-                            return Ok(());
-                        };
-                        if !current_peer.connected && current_peer.id != 1 {
-                            self.notification =
-                                Some(("Contact not connected.".into(), Instant::now()));
-                            return Ok(());
+                        let chat: Chat;
+                        if is_peer {
+                            let Some(current_peer) = self.contacts.get(idx) else {
+                                eprintln!("Peer not found.");
+                                return Ok(());
+                            };
+                            let current_peer = current_peer.clone();
+                            #[allow(clippy::cast_possible_truncation)]
+                            self.send(IPCCmd::Text(current_peer.id as u8, text.into()))
+                                .await?;
+                            if !current_peer.connected && current_peer.id != 1 {
+                                self.notification =
+                                    Some(("Contact not connected.".into(), Instant::now()));
+                                return Ok(());
+                            }
+                            chat = Chat::chat_to_send(self.chat_buf.trim(), current_peer.id);
+                        } else {
+                            chat = Chat::chat_to_send(text, idx as u32);
+                            let Some(grp) = self.groups.get(idx) else {
+                                return Ok(());
+                            };
+                            #[allow(clippy::cast_possible_truncation)]
+                            self.send(IPCCmd::GroupText(grp.id, text.into())).await?;
                         }
-                        let chat = Chat::chat_to_send(&self.chat_buf, current_peer.id);
                         self.chats.push(chat);
                         self.chat_buf = String::new();
                         if let Mode::Insert { ref mut cursor_pos } = self.mode {
                             *cursor_pos = 0;
                         }
                     }
-                    Tab::None => {}
+                    Tab::None => unimplemented!(),
                 }
             }
             KeyCode::Left => {
@@ -272,7 +288,7 @@ impl Keys for App {
                 Tab::Chat => {
                     self.chat_scroll = self.chat_scroll.saturating_sub(5);
                 }
-                _ => {}
+                _ => unimplemented!(),
             },
             KeyCode::Up => match self.tab {
                 Tab::Contact => {
@@ -289,7 +305,7 @@ impl Keys for App {
                 Tab::Chat => {
                     self.chat_scroll = self.chat_scroll.saturating_add(5);
                 }
-                _ => {}
+                _ => unimplemented!(),
             },
             _ => {}
         }

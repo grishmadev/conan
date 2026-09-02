@@ -65,6 +65,10 @@ pub struct Manager {
     pub config: ConanConfig,
     pub identity_key: ExpandedKeypair,
     pub provider: ConanMlsProvider,
+
+    pub asst_sndr: std::sync::mpsc::Sender<Msg>,
+    pub asst_recv: Option<std::sync::mpsc::Receiver<Msg>>,
+    pub worker_sender: std::sync::mpsc::Sender<IPCCmd>,
 }
 
 impl Manager {
@@ -72,6 +76,7 @@ impl Manager {
     pub async fn create(
         msg_sender: broadcast::Sender<IPCRes>,
         config: ConanConfig,
+        worker_sender: std::sync::mpsc::Sender<IPCCmd>,
     ) -> Result<Self, Box<dyn Error>> {
         let mut tor_config_builder = TorClientConfig::builder();
         let stream_timeout_config = tor_config_builder.stream_timeouts();
@@ -119,6 +124,7 @@ impl Manager {
             (),
         )?;
         let (response_sender, response_receiver) = broadcast::channel::<(u8, Internal)>(100);
+        let (asst_sndr, asst_recv) = std::sync::mpsc::channel();
         let identity_key = signing_key().await?;
         let provider = ConanMlsProvider::new(&conn)?;
 
@@ -137,6 +143,9 @@ impl Manager {
             config,
             identity_key,
             provider,
+            asst_sndr,
+            asst_recv: Some(asst_recv),
+            worker_sender,
         })
     }
 
@@ -144,8 +153,20 @@ impl Manager {
     /// # Panics
     pub fn init_server(&mut self) -> Result<(), Box<dyn Error>> {
         debug!("Initializing Server.");
-        let mut stream = self.stream.take().unwrap();
+        let recv = self.asst_recv.take().unwrap();
+        let ressen = self.worker_sender.clone();
+        tokio::spawn(async move {
+            while let Ok(msg) = recv.recv() {
+                match msg {
+                    Msg::InitiateGroup(grp_id) => {
+                        _ = ressen.send(IPCCmd::InitiateGroup(grp_id));
+                    }
+                    _ => {}
+                }
+            }
+        });
 
+        let mut stream = self.stream.take().unwrap();
         // spawn a thread for handling connections from network
         let msg_sender = self.msg_sender.clone();
         let response_sender = self.response_sender.clone();
@@ -229,9 +250,10 @@ impl Manager {
     /// Connects to Peer's Tor Address as a dialer (Seeking connection)
     /// # Errors
     /// # Panics
-    pub fn connect_as_dialer(
+    pub async fn connect_as_dialer(
         &mut self,
-        peer_addr: (String, u16),
+        addr: String,
+        port: u16,
     ) -> Result<PeerStatus, Box<dyn Error>> {
         let tor_client = Arc::clone(&self.tor_client);
         let msg_sender = self.msg_sender.clone();
@@ -239,18 +261,18 @@ impl Manager {
         let response_sender = self.response_sender.clone();
         let peers = Arc::clone(&self.peers);
         if let Some(hsid) = self.service.onion_address()
-            && peer_addr.0 == hsid.display_unredacted().to_string()
+            && addr == hsid.display_unredacted().to_string()
         {
             msg_sender.send(IPCRes::Error("Cannot connect to Self.".to_string()))?;
             return Ok(PeerStatus::NotFound);
         }
         // checking if peer is already in our connection
         {
-            let peer = dbconn.get_peer_from_addr(&peer_addr.0)?;
+            let peer = dbconn.get_peer_from_addr(&addr)?;
             if let Some(peer) = peer {
                 #[allow(clippy::cast_possible_truncation)]
                 if peers.read().unwrap().contains_key(&(peer.id as u8)) {
-                    msg_sender.send(IPCRes::Connected(peer_addr.0, peer_addr.1))?;
+                    msg_sender.send(IPCRes::Connected(addr, port))?;
                     msg_sender.send(IPCRes::Notification(format!(
                         "Already connected to {}",
                         peer.name
@@ -262,91 +284,85 @@ impl Manager {
         let service = Arc::clone(&self.service);
         let config = self.config.clone();
         let msg_sender = self.msg_sender.clone();
-        tokio::spawn(async move {
-            println!("Connecting to peer...");
-            let mut stream = None;
+        let mut stream = None;
 
-            for i in 1..=5 {
-                match tor_client.connect(&peer_addr).await {
-                    Ok(s) => {
-                        stream = Some(s);
-                        break;
-                    }
-                    Err(e) => eprintln!("Error while connecting: {e}"),
+        for i in 1..=5 {
+            println!("Connecting to {addr}");
+            match tor_client.connect(&(addr.clone(), port)).await {
+                Ok(s) => {
+                    stream = Some(s);
+                    break;
                 }
-                if i == 5 {
-                    msg_sender
-                        .send(IPCRes::Error(
-                            "Failed to Connect.\nPlease check you internet connection".to_string(),
-                        ))
-                        .unwrap();
-                } else {
-                    msg_sender
-                        .send(IPCRes::Notification(format!(
-                            "Retrying Connection. [{i}/5]"
-                        )))
-                        .unwrap();
-                    eprintln!("Retrying...");
-                }
+                Err(e) => eprintln!("Error while connecting: {e}\n{e:?}"),
             }
-            let Some(stream) = stream else {
-                msg_sender.send(IPCRes::Error(format!(
-                    "Could not connect to {}. Make sure the address is correct and server active..",
-                    peer_addr.0
+            if i == 5 {
+                msg_sender
+                    .send(IPCRes::Error(
+                        "Failed to Connect.\nPlease check your Internet connection".to_string(),
+                    ))
+                    .unwrap();
+            } else {
+                msg_sender
+                    .send(IPCRes::Notification(format!(
+                        "Retrying Connection. [{i}/5]"
+                    )))
+                    .unwrap();
+                eprintln!("Retrying...");
+            }
+        }
+        let Some(stream) = stream else {
+            msg_sender.send(IPCRes::Error(format!(
+                    "Could not connect to {addr}. Make sure the address is correct and server active.."
                 ))).unwrap();
-                return;
-            };
-            let (mut reader, mut writer) = tokio::io::split(stream);
+            return Ok(PeerStatus::NotFound);
+        };
+        let (mut reader, mut writer) = tokio::io::split(stream);
 
-            let local_hsid = service
-                .onion_address()
-                .ok_or("Onion Address Not found.")
-                .unwrap();
-            let session = match dialer_actor(&mut reader, &mut writer, local_hsid, &peer_addr).await
-            {
-                Ok(s) => s,
-                Err(e) => {
-                    let msg = format!("Error while Reaching out.\n{e}");
-                    msg_sender.send(IPCRes::Error(msg)).unwrap();
-                    return;
-                }
-            };
-            let known = dbconn.get_peer_from_addr(&peer_addr.0).unwrap();
-            let trans = dbconn.transaction().unwrap();
-            let name = generate_name(3..10);
-            let idx = if let Some(known_peer) = known {
-                known_peer.id
-            } else {
-                let peer = Peer::build(&name, &peer_addr.0, true);
-                let peer = trans.insert_peer(peer).unwrap();
-                peer.id
-            };
-
-            #[allow(clippy::cast_possible_truncation)]
-            let mut conn = Slave::build(
-                idx as u8,
-                reader,
-                writer,
-                service,
-                config,
-                msg_sender.clone(),
-                response_sender,
-                Some(Arc::new(tokio::sync::RwLock::new(session))),
-            )
+        let local_hsid = service
+            .onion_address()
+            .ok_or("Onion Address Not found.")
             .unwrap();
-            if conn.spawn_communication().is_ok() {
-                let mut peers = peers.write().unwrap();
-                #[allow(clippy::cast_possible_truncation)]
-                peers.insert(idx as u8, conn);
-                trans.commit().unwrap();
-            } else {
-                _ = trans.rollback();
+        let session = match dialer_actor(&mut reader, &mut writer, local_hsid, &addr).await {
+            Ok(s) => s,
+            Err(e) => {
+                let msg = format!("Error while Reaching out.\n{e}");
+                msg_sender.send(IPCRes::Error(msg)).unwrap();
+                return Ok(PeerStatus::NotFound);
             }
-            println!("Exchange Complete..");
-            msg_sender
-                .send(IPCRes::Connected(peer_addr.0, peer_addr.1))
-                .unwrap();
-        });
+        };
+        let known = dbconn.get_peer_from_addr(&addr).unwrap();
+        let trans = dbconn.transaction().unwrap();
+        let name = generate_name(3..10);
+        let idx = if let Some(known_peer) = known {
+            known_peer.id
+        } else {
+            let peer = Peer::build(&name, &addr, true);
+            let peer = trans.insert_peer(peer).unwrap();
+            peer.id
+        };
+
+        #[allow(clippy::cast_possible_truncation)]
+        let mut conn = Slave::build(
+            idx as u8,
+            reader,
+            writer,
+            service,
+            config,
+            msg_sender.clone(),
+            response_sender,
+            Some(Arc::new(tokio::sync::RwLock::new(session))),
+        )
+        .unwrap();
+        if conn.spawn_communication().is_ok() {
+            let mut peers = peers.write().unwrap();
+            #[allow(clippy::cast_possible_truncation)]
+            peers.insert(idx as u8, conn);
+            trans.commit().unwrap();
+        } else {
+            _ = trans.rollback();
+        }
+        println!("Exchange Complete..");
+        msg_sender.send(IPCRes::Connected(addr, port)).unwrap();
         Ok(PeerStatus::Connected)
     }
 
@@ -388,12 +404,10 @@ impl Manager {
         let group = MlsGroup::build(&self.identity_key, &self_link)?;
         // Loading it in memory
         groups.insert(group_idx, group);
-        println!("WRITING TO INVITATION MEMORY");
         let Ok(mut invitation) = self.invitation_memory.write() else {
             return Err("Could not write to invitation".into());
         };
         invitation.insert(peer_id, dbgroup.group_id);
-        println!("WROTE TO INVITATION MEMORY");
         Ok(())
     }
     /// Used to setup Slave to Master communication Pipeline
@@ -411,6 +425,7 @@ impl Manager {
                 .ok_or("Cannot extract expanded key")?;
         let provider = ConanMlsProvider::new(&dbconn)?;
         self.server_ready.store(true, Ordering::SeqCst);
+        let sndr = self.asst_sndr.clone();
         tokio::spawn(async move {
             let cmdhandler = CommandHandler::new(
                 peers,
@@ -420,6 +435,7 @@ impl Manager {
                 msg_sen,
                 expanded_key,
                 provider,
+                sndr,
             );
             while let Ok((peer_idx, internal)) = rec.recv().await {
                 let res = match internal {
@@ -438,6 +454,7 @@ impl Manager {
                         Msg::GroupMessage(group_id, message) => {
                             cmdhandler.handle_group_message(peer_idx, &group_id, &message)
                         }
+                        Msg::InitiateGroup(group_id) => cmdhandler.handle_initiate_group(group_id),
                         _ => unimplemented!(),
                     },
                     Internal::RemovePeer(idx) => cmdhandler.remove_peer(idx),

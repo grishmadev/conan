@@ -19,10 +19,10 @@ use crate::{
     msg::{Msg, SlaveCmd},
 };
 use openmls::{
-    group::GroupId,
+    group::{GroupId, MlsGroup},
     prelude::{
         DeserializeBytes, KeyPackage, MlsMessageBodyOut, MlsMessageIn, ProcessedMessageContent,
-        RatchetTreeIn, Welcome, tls_codec::Serialize,
+        Welcome, tls_codec::Serialize,
     },
 };
 use openmls_basic_credential::SignatureKeyPair;
@@ -40,7 +40,7 @@ where
     C: Codec,
 {
     peers: Arc<RwLock<HashMap<u8, Slave>>>,
-    groups: Arc<RwLock<HashMap<u8, ConanGroup>>>,
+    groups: Arc<RwLock<HashMap<u8, MlsGroup>>>,
     dbconn: Connection,
     msg_sen: broadcast::Sender<IPCRes>,
     openmls_store: SqliteStorageProvider<C, Connection>,
@@ -49,19 +49,21 @@ where
     identity_key: ExpandedKeypair,
     provider: ConanMlsProvider,
     signer: SignatureKeyPair,
+    asst_sndr: std::sync::mpsc::Sender<Msg>,
 }
 impl CommandHandler {
     pub fn new(
         peers: Arc<RwLock<HashMap<u8, Slave>>>,
-        groups: Arc<RwLock<HashMap<u8, ConanGroup>>>,
+        groups: Arc<RwLock<HashMap<u8, MlsGroup>>>,
         invitation_memory: Arc<RwLock<HashMap<u8, Vec<u8>>>>,
         dbconn: Connection,
         msg_sen: broadcast::Sender<IPCRes>,
         expanded_key: ExpandedKeypair,
         provider: ConanMlsProvider,
+        sndr: std::sync::mpsc::Sender<Msg>,
     ) -> Self {
         let openmls_store = SqliteStorageProvider::from_db(&dbconn).unwrap();
-        let (signer, _, _) = ConanGroup::signer_from_expanded_key(&expanded_key);
+        let (signer, _, _) = MlsGroup::signer_from_expanded_key(&expanded_key);
         Self {
             peers,
             groups,
@@ -72,6 +74,7 @@ impl CommandHandler {
             identity_key: expanded_key,
             provider,
             signer,
+            asst_sndr: sndr,
         }
     }
     pub fn handle_msg_text(&self, idx: u8, text: String) -> Result<(), Box<dyn Error>> {
@@ -84,7 +87,7 @@ impl CommandHandler {
             }
         }
         self.msg_sen.send(IPCRes::Text(idx, text.clone()))?;
-        let Ok(Some(target)) = self.dbconn.get_peer_from_id(u32::from(idx)) else {
+        let Ok(Some(target)) = self.dbconn.get_peer_from_id(u16::from(idx)) else {
             _ = self
                 .msg_sen
                 .send(IPCRes::Error("Cannot find peer in database.".into()));
@@ -103,11 +106,12 @@ impl CommandHandler {
 
     pub fn handle_msg_convert(&self, peer_idx: u8) -> Result<(), Box<dyn Error>> {
         println!("got convert to group");
-        let (signer, _, _) = ConanGroup::signer_from_expanded_key(&self.identity_key);
+        let (signer, _, _) = MlsGroup::signer_from_expanded_key(&self.identity_key);
         let peers = Arc::clone(&self.peers);
         let provider = ConanMlsProvider::new(&self.dbconn)?;
+        let self_link = self.dbconn.get_peer_from_id(1)?.unwrap().address;
         tokio::spawn(async move {
-            let key_package = ConanGroup::key_package_bundle(&signer, &provider).unwrap();
+            let key_package = MlsGroup::key_package_bundle(&signer, &provider, &self_link).unwrap();
             let Ok(mut peers) = peers.write() else {
                 println!("Cannot write to peers.");
                 return;
@@ -146,23 +150,20 @@ impl CommandHandler {
         let mut groups = self.groups.write().unwrap();
         let Some((_grp_idx, target_group)) = groups
             .iter_mut()
-            .find(|f| f.1.group.group_id().as_slice() == group_id)
+            .find(|f| f.1.group_id().as_slice() == group_id)
         else {
             return Err("No Group found at given group id".into());
         };
-        println!("check 1");
-        let (_commit, welcome) =
-            target_group.add_members(&key_package, &self.provider, &self.signer)?;
-        println!("check 2");
+        let keypackages = core::slice::from_ref(&key_package);
+        let (_commit, welcome, _) =
+            target_group.add_members(&self.provider, &self.signer, keypackages)?;
         let mut peers = self.peers.write().unwrap();
         let Some(peer) = peers.get_mut(&peer_idx) else {
             return Err("No peer found at given Index".into());
         };
-        println!("check 3");
         let MlsMessageBodyOut::Welcome(welcome) = welcome.body().clone() else {
             return Err("No Welcome found. Ignoring.".into());
         };
-        println!("check 4");
         peer.command_sender
             .send(SlaveCmd::Msg(Msg::Welcome(welcome)))?;
         Ok(())
@@ -175,18 +176,19 @@ impl CommandHandler {
             println!("No peer found at given index");
             return Err("No peer found at given index".into());
         };
-        println!("CHECK 1");
-        let mls_grp = ConanGroup::join_group(&self.provider, welcome)?;
-        println!("CHECK 2");
+        let mls_grp = MlsGroup::join_group(&self.provider, welcome)?;
+        mls_grp.members().for_each(|m| {
+            let data = m.credential.serialized_content().to_vec();
+            let str = from_bytes::<String>(&data).unwrap();
+            println!("mls group member: {str}");
+        });
         let grp_id = mls_grp.group_id().to_vec();
-        let grp = ConanGroup::from_mls(mls_grp);
 
         let grp_name = generate_name(3..8);
         let dbgroup = DBGroup::new(grp_id.clone(), grp_name);
 
         peer.command_sender
-            .send(SlaveCmd::Msg(Msg::GroupVerified(grp_id)))
-            .unwrap();
+            .send(SlaveCmd::Msg(Msg::GroupVerified(grp_id)))?;
 
         let Ok(mut grps) = self.groups.write() else {
             return Err("Cannot write to groups.".into());
@@ -194,7 +196,7 @@ impl CommandHandler {
         let db_grp = self.dbconn.insert_group(dbgroup)?;
 
         // we insert group to database and memory
-        grps.insert(db_grp.id, grp);
+        grps.insert(db_grp.id, mls_grp);
         Ok(())
     }
 
@@ -213,11 +215,11 @@ impl CommandHandler {
         let mut groups = self.groups.write().unwrap();
         let Some((_grp_idx, grp)) = groups
             .iter_mut()
-            .find(|g| g.1.group.group_id().as_slice() == group_id)
+            .find(|g| g.1.group_id().as_slice() == group_id)
         else {
             return Err("Cannot find targetted group".into());
         };
-        grp.group.merge_pending_commit(&self.provider)?;
+        grp.merge_pending_commit(&self.provider)?;
         // the group is already saved in initializers database
         // so it can be retrieved
         let db_group = self.dbconn.get_group_by_group_id(group_id)?;
@@ -225,24 +227,35 @@ impl CommandHandler {
         // Inserting member in our database
         let peer = self
             .dbconn
-            .get_peer_from_id(u32::from(peer_idx))?
+            .get_peer_from_id(u16::from(peer_idx))?
             .ok_or("Unknown Peer dropping connection")?;
         self.dbconn.insert_member(db_group.id, peer, true)?;
 
         let text = b"Hello there";
         let mut peers = self.peers.write().unwrap();
-        for idx in grp.members.iter() {
-            println!("member: {idx}");
-            let Some(peer) = peers.get_mut(idx) else {
+        let members = grp.members().collect::<Vec<_>>();
+        println!("check 1");
+        members.iter().for_each(|m| {
+            println!(
+                "member onion link: {}",
+                from_bytes::<String>(m.credential.serialized_content()).unwrap()
+            );
+        });
+        for m in members {
+            let link = from_bytes::<String>(m.credential.serialized_content())?;
+            let peer = self.dbconn.get_peer_from_addr(&link)?.unwrap();
+            if peer.id == 1 {
+                continue;
+            }
+            let Some(peer) = peers.get_mut(&(peer.id as u8)) else {
                 continue;
             };
             let message = grp
-                .group
                 .create_message(&self.provider, &self.signer, text)
                 .unwrap();
             let message_ser = message.tls_serialize_detached()?;
             peer.command_sender.send(SlaveCmd::Msg(Msg::GroupMessage(
-                grp.group.group_id().to_vec(),
+                grp.group_id().to_vec(),
                 message_ser,
             )))?;
         }
@@ -259,15 +272,13 @@ impl CommandHandler {
             .ok_or("Could not remove group.")?;
         let group_id = GroupId::from_slice(&group_id);
         let mut groups = self.groups.write().unwrap();
-        let Some((_grp_idx, group)) = groups
-            .iter_mut()
-            .find(|f| f.1.group.group_id() == &group_id)
+        let Some((_grp_idx, group)) = groups.iter_mut().find(|f| f.1.group_id() == &group_id)
         else {
             return Err("Could not find targetted group".into());
         };
-        group.group.clear_pending_commit(&self.openmls_store)?;
+        group.clear_pending_commit(&self.openmls_store)?;
         let db_group = self.dbconn.get_group_by_group_id(&group_id.to_vec())?;
-        if !group.members.is_empty() {
+        if !group.members().collect::<Vec<_>>().is_empty() {
             groups.remove(&db_group.id);
         }
         ConanNotif::Sys(err).notify()?;
@@ -280,18 +291,17 @@ impl CommandHandler {
         group_id: &[u8],
         message: &[u8],
     ) -> Result<(), Box<dyn Error>> {
-        println!("got group message");
         let (message, _) = MlsMessageIn::tls_deserialize_bytes(message)?;
         let mut groups = self.groups.write().unwrap();
+        groups.iter().for_each(|f| {
+            println!("group: {}", f.0);
+        });
         let dbgroup = self.dbconn.get_group_by_group_id(group_id)?;
         let Some(group) = groups.get_mut(&dbgroup.id) else {
             return Err("Cannot find selected group".into());
         };
         let message = message.try_into_protocol_message().unwrap();
-        let processed_message = group
-            .group
-            .process_message(&self.provider, message)
-            .unwrap();
+        let processed_message = group.process_message(&self.provider, message).unwrap();
         let content = processed_message.into_content();
         match content {
             ProcessedMessageContent::ApplicationMessage(mess) => {
@@ -309,7 +319,12 @@ impl CommandHandler {
             }
             _ => {}
         }
-        group.group.merge_pending_commit(&self.provider).unwrap();
+        group.merge_pending_commit(&self.provider).unwrap();
+        Ok(())
+    }
+
+    pub fn handle_initiate_group(&self, group_id: Vec<u8>) -> Result<(), Box<dyn Error>> {
+        self.asst_sndr.send(Msg::InitiateGroup(group_id))?;
         Ok(())
     }
 
@@ -318,7 +333,7 @@ impl CommandHandler {
             && let Some(conn) = guard.remove(&idx)
         {
             println!("Removing Connection: {}", conn.id);
-            if let Ok(Some(peer)) = self.dbconn.get_peer_from_id(u32::from(conn.id)) {
+            if let Ok(Some(peer)) = self.dbconn.get_peer_from_id(u16::from(conn.id)) {
                 _ = ConanNotif::Sys(format!("{} disconnected.", peer.name));
             }
         }

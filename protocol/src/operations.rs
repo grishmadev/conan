@@ -94,7 +94,7 @@ pub async fn signing_key() -> Result<ExpandedKeypair, Box<dyn Error>> {
 pub fn x25519_handshake(
     remote_public_key: &mut Option<PublicKey>,
     local_public_key: PublicKey,
-    peer_addr: &(String, u16),
+    peer_addr: &str,
     msg: Msg,
 ) -> Result<(), Box<dyn Error>> {
     let Msg::SignedAndPublicKey(signature, claimed_local_public_key, claimed_remote_public_key) =
@@ -106,7 +106,7 @@ pub fn x25519_handshake(
     if local_public_key != &claimed_local_public_key {
         return Err("local key mismatch. Aborting.".into());
     }
-    let hsid = HsId::from_str(&peer_addr.0)?;
+    let hsid = HsId::from_str(peer_addr)?;
     let hsid_bytes = hsid.as_ref();
     let verifying_key = VerifyingKey::from_bytes(hsid_bytes)?;
     let signature = Signature::try_from(&signature[..])?;
@@ -250,7 +250,7 @@ pub async fn dialer_actor<R, W>(
     reader: &mut ReadHalf<R>,
     writer: &mut WriteHalf<W>,
     local_hsid: HsId,
-    peer_addr: &(String, u16),
+    peer_addr: &str,
 ) -> Result<RatchetSession, Box<dyn Error>>
 where
     R: AsyncReadExt,
@@ -296,7 +296,8 @@ where
     println!("Signing, Encrypting, Sending Message for approval.");
     let signature = signing_key.sign(&data);
     let local_hsid_bytes = local_hsid.as_ref();
-    let remote_hsid = HsId::from_str(&peer_addr.0)?;
+    let remote_hsid = HsId::from_str(peer_addr)?;
+    println!("Peer's Address: {}", remote_hsid.display_unredacted());
     let remote_hsid_bytes = remote_hsid.as_ref();
     let msg = Msg::SignedAndPublicKey(
         signature.to_bytes().to_vec(),

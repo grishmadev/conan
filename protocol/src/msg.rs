@@ -1,5 +1,5 @@
 use bincode::config;
-use openmls::prelude::{RatchetTreeIn, Welcome};
+use openmls::prelude::Welcome;
 use serde::{Deserialize, Serialize};
 
 use crate::comm::enums::IPCRes;
@@ -40,6 +40,7 @@ pub enum Msg {
     GroupError(String),
     GroupVerified(Vec<u8>),
     GroupMessage(Vec<u8>, Vec<u8>),
+    InitiateGroup(Vec<u8>),
 }
 
 impl Msg {

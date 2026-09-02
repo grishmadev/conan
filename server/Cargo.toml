@@ -18,6 +18,8 @@ tokio.workspace = true
 tor-hsservice.workspace = true
 bincode.workspace = true
 clap.workspace = true
+color-eyre.workspace = true
+openmls.workspace = true
 
 [lints]
 workspace = true

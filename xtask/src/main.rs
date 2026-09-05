@@ -1,4 +1,4 @@
-use conanprotocol::{config::parse_config, entities::database::peer::PeerData};
+use conanprotocol::{config::parse_config, entities::database::group_chat::ConnectionGroupChat};
 use rusqlite::Connection;
 use std::error::Error;
 
@@ -8,7 +8,8 @@ use std::error::Error;
 async fn main() -> Result<(), Box<dyn Error>> {
     let config = parse_config()?;
     let conn = Connection::open(config.db_path)?;
-    let peers = conn.list_all_peers(false)?;
-    println!("peers: {peers:#?}");
+    let chats = conn.list_all_group_chat()?;
+    println!("chats: {chats:#?}");
+    // conn.execute("DELETE FROM group_chat ", [])?;
     Ok(())
 }

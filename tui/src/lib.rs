@@ -241,7 +241,7 @@ impl App {
                         return Ok(());
                     };
                     #[allow(clippy::cast_possible_truncation)]
-                    let idx = idx as u32;
+                    let idx = idx as u16;
                     if cur_cont.id.eq(&idx) {
                         let new_chat = Chat::chat_to_rec(&text, idx);
                         self.chats.push(new_chat);
@@ -255,7 +255,7 @@ impl App {
                     let Some(cur_cont) = self.contacts.get(idx) else {
                         return Ok(());
                     };
-                    if cur_cont.id != u32::from(peer_id) {
+                    if cur_cont.id != peer_id {
                         return Ok(());
                     }
                     self.chats = chats;
@@ -441,7 +441,7 @@ impl App {
             if is_peer && let Some(peer) = self.contacts.get(cur_idx) {
                 #[allow(clippy::cast_possible_truncation)]
                 self.send(IPCCmd::ChatList {
-                    peer_id: peer.id as u8,
+                    peer_id: peer.id,
                     msg_amount: 50,
                 })
                 .await?;

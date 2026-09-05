@@ -22,8 +22,8 @@ pub enum Internal {
     HsId,
     Msg(Msg),
     IPCRes(IPCRes),
-    RemovePeer(u8),
-    ChatSent(u8, String),
+    RemovePeer(u16),
+    ChatSent(u16, String),
 }
 
 #[non_exhaustive]

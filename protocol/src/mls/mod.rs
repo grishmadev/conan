@@ -6,7 +6,10 @@ use crate::{
 };
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use openmls::{
-    group::{MlsGroup, MlsGroupCreateConfigBuilder, MlsGroupJoinConfig, StagedWelcome},
+    group::{
+        CommitMessageBundle, MlsGroup, MlsGroupCreateConfigBuilder, MlsGroupJoinConfig,
+        StagedWelcome,
+    },
     prelude::{
         BasicCredential, Ciphersuite, CredentialWithKey, KeyPackage, KeyPackageBundle,
         KeyPackageNewError, SignatureScheme, Welcome,
@@ -16,6 +19,7 @@ use openmls_basic_credential::SignatureKeyPair;
 use openmls_sqlite_storage::SqliteStorageProvider;
 use rusqlite::Connection;
 use std::error::Error;
+use thiserror::Error;
 use tor_llcrypto::pk::ed25519::ExpandedKeypair;
 
 pub trait ConanGroup {
@@ -149,4 +153,15 @@ impl ConanGroup for MlsGroup {
         });
         Ok(result)
     }
+}
+
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum ConanGroupError {
+    #[error("Group not found")]
+    NotFound,
+    #[error("Could not extract group info.")]
+    Extraction,
+    #[error("{0}")]
+    Other(String),
 }

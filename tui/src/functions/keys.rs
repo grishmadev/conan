@@ -73,6 +73,17 @@ impl Keys for App {
                     };
                 }
             }
+            KeyCode::Char('d')
+                if matches!(self.tab, Tab::Contact) && key.modifiers == KeyModifiers::SHIFT =>
+            {
+                if self.active_screen == Screen::None {
+                    self.active_screen = Screen::ConfirmScreen {
+                        prompt: "Are you sure you want to disconnect?".into(),
+                        yes_selected: false,
+                        mode: ConfirmMode::DisconnectPeer,
+                    };
+                }
+            }
             KeyCode::Char('d') if matches!(self.tab, Tab::Contact) => {
                 let (is_peer, idx) = self.current_contact();
                 let Some(idx) = idx else {
@@ -191,7 +202,7 @@ impl Keys for App {
                                 // Self: we don't need loading screen, just load the chat
                                 #[allow(clippy::cast_possible_truncation)]
                                 self.send(IPCCmd::ChatList {
-                                    peer_id: idx as u8,
+                                    peer_id: idx as u16,
                                     msg_amount: 50,
                                 })
                                 .await?;
@@ -205,7 +216,7 @@ impl Keys for App {
                             self.send(IPCCmd::Connect(peer.address.clone(), 80)).await?;
                             self.send(IPCCmd::ChatList {
                                 #[allow(clippy::cast_possible_truncation)]
-                                peer_id: idx as u8,
+                                peer_id: idx as u16,
                                 msg_amount: 50,
                             })
                             .await?;
@@ -213,7 +224,7 @@ impl Keys for App {
                             let Some(grp) = self.groups.get(idx) else {
                                 return Ok(());
                             };
-                            self.send(IPCCmd::GroupConnect(u16::from(grp.id))).await?;
+                            self.send(IPCCmd::GroupConnect(grp.id)).await?;
                         }
                     }
                     Tab::Chat => {
@@ -229,7 +240,7 @@ impl Keys for App {
                             };
                             let current_peer = current_peer.clone();
                             #[allow(clippy::cast_possible_truncation)]
-                            self.send(IPCCmd::Text(current_peer.id as u8, text.into()))
+                            self.send(IPCCmd::Text(current_peer.id, text.into()))
                                 .await?;
                             if !current_peer.connected && current_peer.id != 1 {
                                 self.notification =
@@ -238,7 +249,7 @@ impl Keys for App {
                             }
                             chat = Chat::chat_to_send(self.chat_buf.trim(), current_peer.id);
                         } else {
-                            chat = Chat::chat_to_send(text, idx as u32);
+                            chat = Chat::chat_to_send(text, idx as u16);
                             let Some(grp) = self.groups.get(idx) else {
                                 return Ok(());
                             };
@@ -365,7 +376,7 @@ impl Keys for App {
                         return Ok(());
                     };
                     #[allow(clippy::cast_possible_truncation)]
-                    let msg = IPCCmd::RenamePeer(peer.id as u8, input.clone());
+                    let msg = IPCCmd::RenamePeer(peer.id, input.clone());
                     self.send(msg).await?;
                     self.active_screen = Screen::None;
                 }
@@ -388,6 +399,9 @@ impl Keys for App {
             return Ok(());
         };
         match key.code {
+            KeyCode::Esc => {
+                self.active_screen = Screen::None;
+            }
             KeyCode::Left | KeyCode::Right => {
                 *yes_selected = !*yes_selected;
             }
@@ -415,11 +429,17 @@ impl Keys for App {
                             let Some(group) = self.groups.get(idx) else {
                                 return Ok(());
                             };
-                            IPCCmd::DeleteGroup(u32::from(group.id))
+                            IPCCmd::DeleteGroup(group.id)
                         };
                         self.send(cmd).await?;
                     }
                     self.active_screen = Screen::None;
+                }
+                ConfirmMode::DisconnectPeer => {
+                    if *yes_selected && let (true, Some(idx)) = self.current_contact() {
+                        #[allow(clippy::cast_possible_truncation)]
+                        self.send(IPCCmd::Disconnect(idx as u16)).await?;
+                    }
                 }
             },
             _ => {}
@@ -487,8 +507,7 @@ impl Keys for App {
                                     Some(("No such group with that name".into(), Instant::now()));
                                 return Ok(());
                             };
-                            self.send(IPCCmd::AddToGroup(u32::from(curgrp.id), curcon.id))
-                                .await?;
+                            self.send(IPCCmd::AddToGroup(curgrp.id, curcon.id)).await?;
                         }
                     }
                     self.active_screen = Screen::None;

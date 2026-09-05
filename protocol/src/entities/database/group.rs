@@ -4,11 +4,12 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Encode, Decode, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DBGroup {
-    pub id: u8,
+    pub id: u16,
     /// This is the group id that will be used by openmls
     /// Not to be confused with relational `group_id`
     pub group_id: Vec<u8>,
     pub name: String,
+    pub connected: bool,
 }
 
 impl DBGroup {
@@ -18,6 +19,7 @@ impl DBGroup {
             id: 0,
             group_id,
             name,
+            connected: false,
         }
     }
 }
@@ -25,9 +27,9 @@ impl DBGroup {
 pub trait ConnectionGroup {
     fn list_groups(&self) -> Result<Vec<DBGroup>, rusqlite::Error>;
     fn insert_group(&self, group: DBGroup) -> Result<DBGroup, rusqlite::Error>;
-    fn delete_group(&self, group_id: u8) -> Result<(), rusqlite::Error>;
+    fn delete_group(&self, group_id: u16) -> Result<(), rusqlite::Error>;
     fn get_group_by_group_id(&self, group_id: &[u8]) -> Result<DBGroup, rusqlite::Error>;
-    fn get_group_by_idx(&self, idx: u8) -> Result<DBGroup, rusqlite::Error>;
+    fn get_group_by_idx(&self, idx: u16) -> Result<DBGroup, rusqlite::Error>;
 }
 
 impl ConnectionGroup for Connection {
@@ -38,6 +40,7 @@ impl ConnectionGroup for Connection {
                 id: r.get(0)?,
                 group_id: r.get(1)?,
                 name: r.get(2)?,
+                connected: false,
             })
         })?;
         let mut result = vec![];
@@ -62,6 +65,7 @@ impl ConnectionGroup for Connection {
                         id: r.get(0)?,
                         group_id: r.get(1)?,
                         name: r.get(2)?,
+                        connected: false,
                     })
                 })?;
                 Some(row)
@@ -76,7 +80,7 @@ impl ConnectionGroup for Connection {
         }
     }
 
-    fn delete_group(&self, group_id: u8) -> Result<(), rusqlite::Error> {
+    fn delete_group(&self, group_id: u16) -> Result<(), rusqlite::Error> {
         let mut stmt = self.prepare("DELETE FROM my_group WHERE id = ?1")?;
         let res = stmt.execute([group_id])?;
         if res != 1 {
@@ -93,12 +97,13 @@ impl ConnectionGroup for Connection {
                 id: r.get("id")?,
                 group_id: r.get::<_, Vec<u8>>("group_id")?,
                 name: r.get("name")?,
+                connected: false,
             })
         })?;
         Ok(row)
     }
 
-    fn get_group_by_idx(&self, idx: u8) -> Result<DBGroup, rusqlite::Error> {
+    fn get_group_by_idx(&self, idx: u16) -> Result<DBGroup, rusqlite::Error> {
         println!("getting groups from idx");
         let mut stmt = self.prepare("SELECT * FROM my_group WHERE id = ?1")?;
         let row = stmt.query_one([idx], |r| {
@@ -106,6 +111,7 @@ impl ConnectionGroup for Connection {
                 id: r.get("id")?,
                 group_id: r.get::<_, Vec<u8>>("group_id")?,
                 name: r.get("name")?,
+                connected: false,
             })
         })?;
         Ok(row)

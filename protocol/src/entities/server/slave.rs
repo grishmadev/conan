@@ -18,12 +18,12 @@ use crate::{
 };
 
 pub struct Slave {
-    pub id: u8,
+    pub id: u16,
     reader: Option<ReadHalf<DataStream>>,
     pub writer: Option<WriteHalf<DataStream>>,
     pub command_sender: broadcast::Sender<SlaveCmd>,
     command_receiver: Option<broadcast::Receiver<SlaveCmd>>,
-    pub response_sender: broadcast::Sender<(u8, Internal)>,
+    pub response_sender: broadcast::Sender<(u16, Internal)>,
     /// Double Ratchet session for encrypted communication.
     /// `None` before handshake completes, `Some` after.
     pub ratchet_session: Option<Arc<RwLock<RatchetSession>>>,
@@ -34,13 +34,13 @@ pub struct Slave {
 
 impl Slave {
     pub fn build(
-        id: u8,
+        id: u16,
         reader: ReadHalf<DataStream>,
         writer: WriteHalf<DataStream>,
         service: Arc<RunningOnionService>,
         config: ConanConfig,
         msg_sender: broadcast::Sender<IPCRes>,
-        response_sender: broadcast::Sender<(u8, Internal)>,
+        response_sender: broadcast::Sender<(u16, Internal)>,
         ratchet_session: Option<Arc<RwLock<RatchetSession>>>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let cmd = tokio::sync::broadcast::channel::<SlaveCmd>(10);
@@ -124,7 +124,7 @@ impl Slave {
     /// Connects to Peer as listener (Allowing Connections)
     /// # Panics
     /// # Errors
-    pub async fn connect_as_listener(&mut self) -> Result<u8, Box<dyn Error>> {
+    pub async fn connect_as_listener(&mut self) -> Result<u16, Box<dyn Error>> {
         let Some(reader) = self.reader.as_mut() else {
             return Err("No reader found.".into());
         };
@@ -152,12 +152,10 @@ impl Slave {
             dbconn.insert_peer(Peer::build(&name, &remote_hsid, true))?
         };
         let name = peer.name;
-        #[allow(clippy::cast_possible_truncation)]
-        let id = peer.id as u8;
-        self.id = id;
+        self.id = peer.id;
         self.msg_sender.send(IPCRes::Notification(format!(
             "{name} just connected to you."
         )))?;
-        Ok(id)
+        Ok(peer.id)
     }
 }

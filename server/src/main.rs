@@ -49,12 +49,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
                 IPCCmd::Connect(addr, port) => {
                     println!("addr to connect: {addr}:{port}");
-                    if let Err(e) = manager.connect_as_dialer(addr, port).await {
+                    if let Err(e) = manager.connect_as_dialer(addr, port, false) {
                         return Err(format!("Cannot connect as Dialer:\n{e}").into());
                     }
                 }
                 IPCCmd::Text(idx, text) => {
-                    println!("receiver idx: {idx}");
                     if idx == 1 {
                         let chat = Chat::chat_to_send(&text, 1);
                         manager.dbconn.insert_chat(chat)?;
@@ -67,10 +66,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         println!("Cannot find target peer.");
                         continue;
                     };
-                    let chat = Chat::chat_to_send(&text, u32::from(idx));
+                    let chat = Chat::chat_to_send(&text, idx);
                     manager.dbconn.insert_chat(chat)?;
                     let msg = Msg::Text(text);
                     target.command_sender.send(SlaveCmd::Msg(msg)).unwrap();
+                }
+                IPCCmd::Disconnect(idx) => {
+                    if idx == 1 {
+                        continue;
+                    }
+                    let mut peers = manager.peers.write().unwrap();
+                    let Some(target) = peers.get_mut(&idx) else {
+                        continue;
+                    };
+                    target.command_sender.send(SlaveCmd::Shutdown)?;
                 }
                 IPCCmd::PeerList => {
                     let mut peers = manager.dbconn.list_all_peers(true)?;
@@ -78,7 +87,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         let iter = peers.iter_mut();
                         #[allow(clippy::cast_possible_truncation)]
                         for p in iter {
-                            p.connected = mem_slaves.contains_key(&(p.id as u8));
+                            p.connected = mem_slaves.contains_key(&p.id);
                         }
                     }
                     manager.msg_sender.send(IPCRes::PeerList(peers))?;
@@ -89,15 +98,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
                 IPCCmd::DeleteGroup(idx) => {
                     #[allow(clippy::cast_possible_truncation)]
-                    let idx = idx as u8;
                     manager.dbconn.delete_group(idx)?;
                     manager.groups.write().unwrap().remove(&idx);
-                    manager
-                        .msg_sender
-                        .send(IPCRes::DeletedGroup(u32::from(idx)))?;
+                    manager.msg_sender.send(IPCRes::DeletedGroup(idx))?;
                 }
                 IPCCmd::RenamePeer(idx, new_name) => {
-                    let idx = u32::from(idx);
                     manager.dbconn.rename_peer(idx, new_name)?;
                     manager.msg_sender.send(IPCRes::RenamedPeer(idx))?;
                 }
@@ -134,35 +139,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
 
                 IPCCmd::GroupConnect(idx) => {
-                    let mut group = manager.get_mls_group_from_idx(idx as u8)?;
-                    manager.connect_to_group(&mut group).await?;
-                    manager.groups.write().unwrap().insert(idx as u8, group);
+                    let mut group = manager.get_mls_group_from_idx(idx)?;
+                    manager.connect_to_group(&mut group)?;
+                    manager.groups.write().unwrap().insert(idx, group);
                 }
 
                 IPCCmd::InitiateGroup(grp_id) => {
                     println!("initiating group from this side");
                     let dbgroup = manager.dbconn.get_group_by_group_id(&grp_id)?;
                     let mut mlsgrp = manager.get_mls_group_from_idx(dbgroup.id)?;
-                    manager.connect_to_group(&mut mlsgrp).await?;
-                    // let peers = manager.peers.write().unwrap();
-                    // let members = mlsgrp.get_members()?;
-                    // for m in &members {
-                    // let peer = if let Some(peer) = self.dbconn.get_peer_from_addr(&m)? {
-                    //     peer
-                    // } else {
-                    //     let new_peer = Peer::build(&generate_name(3..10), &m, false);
-                    //     let peer = self.dbconn.insert_peer(new_peer)?;
-                    //     peer
-                    // };
-                    manager.connect_to_group(&mut mlsgrp).await?;
-                    // if peers.contains_key(&(peer.id as u8)) {
-                    // }
-                    // }
+                    manager.connect_to_group(&mut mlsgrp)?;
                     manager.groups.write().unwrap().insert(dbgroup.id, mlsgrp);
                 }
 
                 IPCCmd::GroupList => {
-                    let groups = manager.dbconn.list_groups()?;
+                    let mut groups = manager.dbconn.list_groups()?;
+                    if let Ok(grouplist) = Arc::clone(&manager.groups).read() {
+                        let groups = groups.iter_mut();
+                        for g in groups {
+                            if grouplist.contains_key(&g.id) {
+                                g.connected = true;
+                            }
+                        }
+                    }
                     manager.msg_sender.send(IPCRes::GroupList(groups))?;
                 }
 
@@ -176,8 +175,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     let mut res = vec![];
                     for c in chats {
                         let chat = Chat {
-                            id: u32::from(c.id),
-                            sender_id: u32::from(c.sender_id),
+                            id: c.id,
+                            sender_id: c.sender_id,
                             receiver_id: 1,
                             data: c.data,
                             time: c.time,

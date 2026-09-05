@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Decode, Encode, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Chat {
-    pub id: u32,
-    pub sender_id: u32,
-    pub receiver_id: u32,
+    pub id: u16,
+    pub sender_id: u16,
+    pub receiver_id: u16,
     pub data: String,
     pub time: String,
 }
@@ -17,7 +17,7 @@ pub struct Chat {
 impl Chat {
     /// Used to build Chat Struct with given parameters
     #[must_use]
-    pub fn build(text: &str, sender: u32, receiver: u32) -> Self {
+    pub fn build(text: &str, sender: u16, receiver: u16) -> Self {
         let time = Utc::now().to_string();
         Self {
             // we're not really adding the id, thats done by sql itself
@@ -31,7 +31,7 @@ impl Chat {
 
     #[must_use]
     /// This is for creating Chat Struct that will be sent to peer.
-    pub fn chat_to_send(text: &str, rec: u32) -> Self {
+    pub fn chat_to_send(text: &str, rec: u16) -> Self {
         let time = Utc::now().to_string();
         Self {
             id: 0,
@@ -44,7 +44,7 @@ impl Chat {
 
     #[must_use]
     /// This is for creating Chat Struct that we received from peer.
-    pub fn chat_to_rec(text: &str, sen: u32) -> Self {
+    pub fn chat_to_rec(text: &str, sen: u16) -> Self {
         let time = Utc::now().to_string();
         Self {
             id: 0,
@@ -62,13 +62,13 @@ pub trait ChatData {
     fn list_all_chat(&self) -> Result<Vec<Chat>, Box<dyn Error>>;
     /// Lists chat from a specific peer
     /// # Errors
-    fn list_chat_from(&self, peer_id: u8, chat_amount: u8) -> Result<Vec<Chat>, Box<dyn Error>>;
+    fn list_chat_from(&self, peer_id: u16, chat_amount: u8) -> Result<Vec<Chat>, Box<dyn Error>>;
     /// Inserts Chat to Local Database
     /// # Errors
     fn insert_chat(&self, chat: Chat) -> Result<(), Box<dyn Error>>;
     /// Deletes from Local Database based on chat id
     /// # Errors
-    fn delete_chat(&self, idx: u32) -> Result<(), Box<dyn Error>>;
+    fn delete_chat(&self, idx: u16) -> Result<(), Box<dyn Error>>;
 }
 
 impl ChatData for Connection {
@@ -92,7 +92,7 @@ impl ChatData for Connection {
         Ok(result)
     }
 
-    fn list_chat_from(&self, peer_id: u8, limit: u8) -> Result<Vec<Chat>, Box<dyn Error>> {
+    fn list_chat_from(&self, peer_id: u16, limit: u8) -> Result<Vec<Chat>, Box<dyn Error>> {
         let stmt = if peer_id == 1 {
             "SELECT * FROM chat
             WHERE (chat.receiver_id = ?1 AND chat.sender_id = ?1)
@@ -142,7 +142,7 @@ impl ChatData for Connection {
         }
     }
 
-    fn delete_chat(&self, id: u32) -> Result<(), Box<dyn Error>> {
+    fn delete_chat(&self, id: u16) -> Result<(), Box<dyn Error>> {
         let mut stmt = self.prepare("DELETE FROM chat WHERE id = ?1")?;
         match stmt.execute([id]) {
             Ok(s) => {

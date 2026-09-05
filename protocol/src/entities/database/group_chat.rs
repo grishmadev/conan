@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Encode, Decode, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GroupChat {
-    pub id: u8,
-    pub group_id: u8,
-    pub sender_id: u8,
+    pub id: u16,
+    pub group_id: u16,
+    pub sender_id: u16,
     pub data: String,
     pub time: String,
 }
@@ -18,8 +18,11 @@ pub trait ConnectionGroupChat {
     fn list_all_group_chat(&self) -> Result<Vec<GroupChat>, rusqlite::Error>;
     /// Use this function to get chats for groups by database group indexes
     /// # Errors
-    fn get_chats_by_group_idx(&self, idx: u8, limit: u8)
-    -> Result<Vec<GroupChat>, rusqlite::Error>;
+    fn get_chats_by_group_idx(
+        &self,
+        idx: u16,
+        limit: u8,
+    ) -> Result<Vec<GroupChat>, rusqlite::Error>;
     /// Use this function to get chats for groups by openmls group ids
     /// # Errors
     fn get_chats_by_group_id(
@@ -53,12 +56,12 @@ impl ConnectionGroupChat for Connection {
     }
     fn get_chats_by_group_idx(
         &self,
-        idx: u8,
+        idx: u16,
         limit: u8,
     ) -> Result<Vec<GroupChat>, rusqlite::Error> {
-        let mut stmt =
-            self.prepare("SELECT * FROM group_chat WHERE id = ?1 ORDER BY time DESC LIMIT ?2")?;
-        let rows = stmt.query_map([idx, limit], |r| {
+        let mut stmt = self
+            .prepare("SELECT * FROM group_chat WHERE group_id = ?1 ORDER BY time DESC LIMIT ?2")?;
+        let rows = stmt.query_map(params![idx, limit], |r| {
             Ok(GroupChat {
                 id: r.get(0)?,
                 group_id: r.get(1)?,
@@ -87,6 +90,7 @@ impl ConnectionGroupChat for Connection {
     }
 
     fn insert_group_chat(&self, chat: GroupChat) -> Result<GroupChat, rusqlite::Error> {
+        println!("inserting chat");
         let mut stmt =
             self.prepare("INSERT INTO group_chat (group_id, sender_id, data) VALUES (?1, ?2, ?3) RETURNING id, group_id, sender_id, data, time")?;
         let row = stmt.query_one(params![&chat.group_id, chat.sender_id, &chat.data], |r| {

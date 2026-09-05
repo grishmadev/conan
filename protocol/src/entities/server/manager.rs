@@ -24,6 +24,7 @@ use tor_llcrypto::pk::ed25519::ExpandedKeypair;
 use crate::{
     comm::enums::{IPCCmd, IPCRes},
     config::ConanConfig,
+    constants::BOUNDED_CHANNEL_SIZE,
     database::ConnectionClone,
     debug,
     entities::{
@@ -43,7 +44,7 @@ use crate::{
 pub struct Manager {
     pub tor_client: Arc<TorClient<tor_rtcompat::PreferredRuntime>>,
     /// NOTE: Only for assigning to `Slaves`, not to be used by manager itself
-    pub response_sender: broadcast::Sender<(u8, Internal)>,
+    pub response_sender: broadcast::Sender<(u16, Internal)>,
     pub stream: Option<BoxStream<'static, RendRequest>>,
     pub service: Arc<RunningOnionService>,
     pub dbconn: Connection,
@@ -53,14 +54,14 @@ pub struct Manager {
     /// Channel for sending message to Master
     pub msg_sender: broadcast::Sender<IPCRes>,
     /// Used for receiving messages from Slaves and transferring them to Master
-    pub response_receiver: broadcast::Receiver<(u8, Internal)>,
+    pub response_receiver: broadcast::Receiver<(u16, Internal)>,
     /// `HashMap` for tracking active peers
-    pub peers: Arc<RwLock<HashMap<u8, Slave>>>,
+    pub peers: Arc<RwLock<HashMap<u16, Slave>>>,
     /// `HashMap` for tracking active Groups
-    pub groups: Arc<RwLock<HashMap<u8, MlsGroup>>>,
+    pub groups: Arc<RwLock<HashMap<u16, MlsGroup>>>,
     /// `HashMap` for tracking temporary Groups
     /// here `u8` refers to peers (not group) associated with the given group
-    pub invitation_memory: Arc<RwLock<HashMap<u8, Vec<u8>>>>,
+    pub invitation_memory: Arc<RwLock<HashMap<u16, Vec<u8>>>>,
     /// Paths chosen during startup
     pub config: ConanConfig,
     pub identity_key: ExpandedKeypair,
@@ -123,7 +124,8 @@ impl Manager {
             ),
             (),
         )?;
-        let (response_sender, response_receiver) = broadcast::channel::<(u8, Internal)>(100);
+        let (response_sender, response_receiver) =
+            broadcast::channel::<(u16, Internal)>(BOUNDED_CHANNEL_SIZE);
         let (asst_sndr, asst_recv) = std::sync::mpsc::channel();
         let identity_key = signing_key().await?;
         let provider = ConanMlsProvider::new(&conn)?;
@@ -250,10 +252,11 @@ impl Manager {
     /// Connects to Peer's Tor Address as a dialer (Seeking connection)
     /// # Errors
     /// # Panics
-    pub async fn connect_as_dialer(
+    pub fn connect_as_dialer(
         &mut self,
         addr: String,
         port: u16,
+        is_group: bool,
     ) -> Result<PeerStatus, Box<dyn Error>> {
         let tor_client = Arc::clone(&self.tor_client);
         let msg_sender = self.msg_sender.clone();
@@ -271,7 +274,7 @@ impl Manager {
             let peer = dbconn.get_peer_from_addr(&addr)?;
             if let Some(peer) = peer {
                 #[allow(clippy::cast_possible_truncation)]
-                if peers.read().unwrap().contains_key(&(peer.id as u8)) {
+                if peers.read().unwrap().contains_key(&peer.id) {
                     msg_sender.send(IPCRes::Connected(addr, port))?;
                     msg_sender.send(IPCRes::Notification(format!(
                         "Already connected to {}",
@@ -284,89 +287,91 @@ impl Manager {
         let service = Arc::clone(&self.service);
         let config = self.config.clone();
         let msg_sender = self.msg_sender.clone();
-        let mut stream = None;
-
-        for i in 1..=5 {
-            println!("Connecting to {addr}");
-            match tor_client.connect(&(addr.clone(), port)).await {
-                Ok(s) => {
-                    stream = Some(s);
-                    break;
+        tokio::spawn(async move {
+            let mut stream = None;
+            for i in 1..=5 {
+                println!("Connecting to {addr}");
+                match tor_client.connect(&(addr.clone(), port)).await {
+                    Ok(s) => {
+                        stream = Some(s);
+                        break;
+                    }
+                    Err(e) => eprintln!("Error while connecting: {e}\n{e:?}"),
                 }
-                Err(e) => eprintln!("Error while connecting: {e}\n{e:?}"),
+                if i == 5 {
+                    msg_sender
+                        .send(IPCRes::Error(
+                            "Failed to Connect.\nPlease check your Internet connection".to_string(),
+                        ))
+                        .unwrap();
+                } else {
+                    msg_sender
+                        .send(IPCRes::Notification(format!(
+                            "Retrying Connection. [{i}/5]"
+                        )))
+                        .unwrap();
+                    eprintln!("Retrying...");
+                }
             }
-            if i == 5 {
-                msg_sender
-                    .send(IPCRes::Error(
-                        "Failed to Connect.\nPlease check your Internet connection".to_string(),
-                    ))
-                    .unwrap();
-            } else {
-                msg_sender
-                    .send(IPCRes::Notification(format!(
-                        "Retrying Connection. [{i}/5]"
-                    )))
-                    .unwrap();
-                eprintln!("Retrying...");
-            }
-        }
-        let Some(stream) = stream else {
-            msg_sender.send(IPCRes::Error(format!(
+            let Some(stream) = stream else {
+                msg_sender.send(IPCRes::Error(format!(
                     "Could not connect to {addr}. Make sure the address is correct and server active.."
                 ))).unwrap();
-            return Ok(PeerStatus::NotFound);
-        };
-        let (mut reader, mut writer) = tokio::io::split(stream);
+                return;
+            };
+            let (mut reader, mut writer) = tokio::io::split(stream);
 
-        let local_hsid = service
-            .onion_address()
-            .ok_or("Onion Address Not found.")
-            .unwrap();
-        let session = match dialer_actor(&mut reader, &mut writer, local_hsid, &addr).await {
-            Ok(s) => s,
-            Err(e) => {
-                let msg = format!("Error while Reaching out.\n{e}");
-                msg_sender.send(IPCRes::Error(msg)).unwrap();
-                return Ok(PeerStatus::NotFound);
-            }
-        };
-        let known = dbconn.get_peer_from_addr(&addr).unwrap();
-        let trans = dbconn.transaction().unwrap();
-        let name = generate_name(3..10);
-        let idx = if let Some(known_peer) = known {
-            known_peer.id
-        } else {
-            let peer = Peer::build(&name, &addr, true);
-            let peer = trans.insert_peer(peer).unwrap();
-            peer.id
-        };
+            let local_hsid = service
+                .onion_address()
+                .ok_or("Onion Address Not found.")
+                .unwrap();
+            let session = match dialer_actor(&mut reader, &mut writer, local_hsid, &addr).await {
+                Ok(s) => s,
+                Err(e) => {
+                    let msg = format!("Error while Reaching out.\n{e}");
+                    msg_sender.send(IPCRes::Error(msg)).unwrap();
+                    return;
+                }
+            };
+            let known = dbconn.get_peer_from_addr(&addr).unwrap();
+            let trans = dbconn.transaction().unwrap();
+            let name = generate_name(3..10);
+            let idx = if let Some(known_peer) = known {
+                known_peer.id
+            } else {
+                let peer = Peer::build(&name, &addr, true);
+                let peer = trans.insert_peer(peer).unwrap();
+                peer.id
+            };
 
-        #[allow(clippy::cast_possible_truncation)]
-        let mut conn = Slave::build(
-            idx as u8,
-            reader,
-            writer,
-            service,
-            config,
-            msg_sender.clone(),
-            response_sender,
-            Some(Arc::new(tokio::sync::RwLock::new(session))),
-        )
-        .unwrap();
-        if conn.spawn_communication().is_ok() {
-            let mut peers = peers.write().unwrap();
             #[allow(clippy::cast_possible_truncation)]
-            peers.insert(idx as u8, conn);
-            trans.commit().unwrap();
-        } else {
-            _ = trans.rollback();
-        }
-        println!("Exchange Complete..");
-        msg_sender.send(IPCRes::Connected(addr, port)).unwrap();
+            let mut conn = Slave::build(
+                idx,
+                reader,
+                writer,
+                service,
+                config,
+                msg_sender.clone(),
+                response_sender,
+                Some(Arc::new(tokio::sync::RwLock::new(session))),
+            )
+            .unwrap();
+            if conn.spawn_communication().is_ok() {
+                let mut peers = peers.write().unwrap();
+                #[allow(clippy::cast_possible_truncation)]
+                peers.insert(idx, conn);
+                trans.commit().unwrap();
+            } else {
+                _ = trans.rollback();
+            }
+            println!("Exchange Complete..");
+            msg_sender.send(IPCRes::Connected(addr, port)).unwrap();
+        });
+
         Ok(PeerStatus::Connected)
     }
 
-    pub fn get_mls_group_from_idx(&self, idx: u8) -> Result<MlsGroup, Box<dyn Error>> {
+    pub fn get_mls_group_from_idx(&self, idx: u16) -> Result<MlsGroup, Box<dyn Error>> {
         let dbgrp = self.dbconn.get_group_by_idx(idx)?;
         let storage = SqliteStorageProvider::<JsonCodec, _>::new(&self.dbconn);
         let mlsgrp = MlsGroup::load(&storage, &GroupId::from_slice(&dbgrp.group_id))?
@@ -375,12 +380,10 @@ impl Manager {
     }
 
     /// # Errors
-    pub fn make_peer_join_group(&self, peer_id: u32, group_idx: u32) -> Result<(), Box<dyn Error>> {
+    pub fn make_peer_join_group(&self, peer_id: u16, group_idx: u16) -> Result<(), Box<dyn Error>> {
         println!("joining peer: {peer_id}, group idx: {group_idx}");
         #[allow(clippy::cast_possible_truncation)]
-        let peer_id = peer_id as u8;
         #[allow(clippy::cast_possible_truncation)]
-        let group_idx = group_idx as u8;
         let peers = Arc::clone(&self.peers);
         let Ok(mut peers) = peers.write() else {
             return Err("Could not write to peer".into());
@@ -395,7 +398,7 @@ impl Manager {
         let Ok(mut groups) = self.groups.write() else {
             return Err("Could not write to groups".into());
         };
-        let dbgroup = self.dbconn.get_group_by_idx(group_idx)?;
+        let dbgroup = self.dbconn.get_group_by_idx(group_idx as u16)?;
         let self_link = self
             .dbconn
             .get_peer_from_id(1)?
@@ -468,7 +471,9 @@ impl Manager {
         Ok(())
     }
 
-    pub async fn connect_to_group(&mut self, group: &mut MlsGroup) -> Result<(), Box<dyn Error>> {
+    /// # Errors
+    /// # Panics
+    pub fn connect_to_group(&mut self, group: &mut MlsGroup) -> Result<(), Box<dyn Error>> {
         // getting all the members embedded in the group
         let members = group.get_members()?;
         // creating a list to remember all the members not connected (yet).
@@ -483,18 +488,18 @@ impl Manager {
             };
             let peers = self.peers.read().unwrap();
             // adding to created list if not already connected
-            if !peers.contains_key(&(peer.id as u8)) {
+            if !peers.contains_key(&peer.id) {
                 members_to_connect.push(peer.clone());
             }
         }
         for peer in members_to_connect {
             println!("connect member");
-            if let Err(e) = self.connect_as_dialer(peer.address, 80).await {
+            if let Err(e) = self.connect_as_dialer(peer.address, 80, true) {
                 eprintln!("Error while connecting to group member.. {e:?}");
             } else {
                 println!("Connected to group member. inserting: {}", peer.id);
                 let peers = self.peers.write().unwrap();
-                if let Some(peer) = peers.get(&(peer.id as u8)) {
+                if let Some(peer) = peers.get(&peer.id) {
                     peer.command_sender
                         .send(SlaveCmd::Msg(Msg::InitiateGroup(group.group_id().to_vec())))?;
                 }
@@ -515,7 +520,7 @@ impl Manager {
                 println!("Could not get targetted member.");
                 continue;
             };
-            if let Some(peer) = peers.get(&(peer.id as u8)) {
+            if let Some(peer) = peers.get(&peer.id) {
                 println!("sending to group");
                 peer.command_sender.send(SlaveCmd::Msg(Msg::GroupMessage(
                     grp.group_id().to_vec(),

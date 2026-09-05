@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Decode, Encode, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Peer {
-    pub id: u32,
+    pub id: u16,
     pub name: String,
     pub address: String,
     pub connected: bool,
@@ -44,10 +44,10 @@ pub trait PeerData {
     fn insert_peer(&self, peer: Peer) -> Result<Peer, Box<dyn Error>>;
     /// Deletes from Local Database based on peer id
     /// # Errors
-    fn delete_peer(&self, id: u32) -> Result<(), Box<dyn Error>>;
+    fn delete_peer(&self, id: u16) -> Result<(), Box<dyn Error>>;
     /// renames peer in Local Database
     /// # Errors
-    fn rename_peer(&self, id: u32, new_name: String) -> Result<(), Box<dyn Error>>;
+    fn rename_peer(&self, id: u16, new_name: String) -> Result<(), Box<dyn Error>>;
 }
 
 impl PeerData for Connection {
@@ -146,7 +146,7 @@ impl PeerData for Connection {
         }
     }
 
-    fn delete_peer(&self, id: u32) -> Result<(), Box<dyn Error>> {
+    fn delete_peer(&self, id: u16) -> Result<(), Box<dyn Error>> {
         let mut stmt = self.prepare("DELETE FROM peer WHERE id = ?1")?;
         match stmt.execute([id]) {
             Ok(s) => {
@@ -159,7 +159,7 @@ impl PeerData for Connection {
         }
     }
 
-    fn rename_peer(&self, id: u32, new_name: String) -> Result<(), Box<dyn Error>> {
+    fn rename_peer(&self, id: u16, new_name: String) -> Result<(), Box<dyn Error>> {
         let mut stmt = self.prepare("UPDATE peer SET name = ?1 WHERE id = ?2")?;
         stmt.execute((new_name, id))?;
         Ok(())

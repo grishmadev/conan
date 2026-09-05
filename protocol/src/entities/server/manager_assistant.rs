@@ -15,7 +15,7 @@ use crate::{
         server::slave::Slave,
     },
     extras::{codec::JsonCodec, generate_name, mls_provider::ConanMlsProvider},
-    mls::ConanGroup,
+    mls::{ConanGroup, ConanGroupError},
     msg::{Msg, SlaveCmd},
 };
 use openmls::{
@@ -39,13 +39,13 @@ pub struct CommandHandler<C = JsonCodec>
 where
     C: Codec,
 {
-    peers: Arc<RwLock<HashMap<u8, Slave>>>,
-    groups: Arc<RwLock<HashMap<u8, MlsGroup>>>,
+    peers: Arc<RwLock<HashMap<u16, Slave>>>,
+    groups: Arc<RwLock<HashMap<u16, MlsGroup>>>,
     dbconn: Connection,
     msg_sen: broadcast::Sender<IPCRes>,
     openmls_store: SqliteStorageProvider<C, Connection>,
     /// here `u8` refers to peers associated with the given group id before joining
-    invitation_memory: Arc<RwLock<HashMap<u8, Vec<u8>>>>,
+    invitation_memory: Arc<RwLock<HashMap<u16, Vec<u8>>>>,
     identity_key: ExpandedKeypair,
     provider: ConanMlsProvider,
     signer: SignatureKeyPair,
@@ -53,9 +53,9 @@ where
 }
 impl CommandHandler {
     pub fn new(
-        peers: Arc<RwLock<HashMap<u8, Slave>>>,
-        groups: Arc<RwLock<HashMap<u8, MlsGroup>>>,
-        invitation_memory: Arc<RwLock<HashMap<u8, Vec<u8>>>>,
+        peers: Arc<RwLock<HashMap<u16, Slave>>>,
+        groups: Arc<RwLock<HashMap<u16, MlsGroup>>>,
+        invitation_memory: Arc<RwLock<HashMap<u16, Vec<u8>>>>,
         dbconn: Connection,
         msg_sen: broadcast::Sender<IPCRes>,
         expanded_key: ExpandedKeypair,
@@ -77,8 +77,8 @@ impl CommandHandler {
             asst_sndr: sndr,
         }
     }
-    pub fn handle_msg_text(&self, idx: u8, text: String) -> Result<(), Box<dyn Error>> {
-        let chat = Chat::chat_to_rec(&text, u32::from(idx));
+    pub fn handle_msg_text(&self, idx: u16, text: String) -> Result<(), Box<dyn Error>> {
+        let chat = Chat::chat_to_rec(&text, idx);
         for _ in 0..3 {
             if let Err(e) = self.dbconn.insert_chat(chat.clone()) {
                 println!("Error inserting chat: {e}");
@@ -87,7 +87,7 @@ impl CommandHandler {
             }
         }
         self.msg_sen.send(IPCRes::Text(idx, text.clone()))?;
-        let Ok(Some(target)) = self.dbconn.get_peer_from_id(u16::from(idx)) else {
+        let Ok(Some(target)) = self.dbconn.get_peer_from_id(idx) else {
             _ = self
                 .msg_sen
                 .send(IPCRes::Error("Cannot find peer in database.".into()));
@@ -104,7 +104,7 @@ impl CommandHandler {
         Ok(())
     }
 
-    pub fn handle_msg_convert(&self, peer_idx: u8) -> Result<(), Box<dyn Error>> {
+    pub fn handle_msg_convert(&self, peer_idx: u16) -> Result<(), Box<dyn Error>> {
         println!("got convert to group");
         let (signer, _, _) = MlsGroup::signer_from_expanded_key(&self.identity_key);
         let peers = Arc::clone(&self.peers);
@@ -129,7 +129,7 @@ impl CommandHandler {
         Ok(())
     }
 
-    pub fn handle_msg_keypackage(&self, peer_idx: u8, data: &[u8]) -> Result<(), Box<dyn Error>> {
+    pub fn handle_msg_keypackage(&self, peer_idx: u16, data: &[u8]) -> Result<(), Box<dyn Error>> {
         println!("got keypackage");
         let key_package = from_bytes::<KeyPackage>(data)?;
         {
@@ -145,14 +145,28 @@ impl CommandHandler {
         }
 
         let Some(group_id) = invitation.get(&peer_idx) else {
-            return Err("No Group found at given Index".into());
+            return Err(ConanGroupError::NotFound.into());
         };
         let mut groups = self.groups.write().unwrap();
-        let Some((_grp_idx, target_group)) = groups
+        let target_group = if let Some((_, target_group)) = groups
             .iter_mut()
             .find(|f| f.1.group_id().as_slice() == group_id)
-        else {
-            return Err("No Group found at given group id".into());
+        {
+            target_group
+        } else {
+            println!("Group not in memory, extracting from Database.");
+            self.asst_sndr.send(Msg::InitiateGroup(group_id.clone()))?;
+            let grp = MlsGroup::load(&self.openmls_store, &GroupId::from_slice(group_id))?
+                .ok_or(ConanGroupError::NotFound)?;
+            let dbgrp = self.dbconn.get_group_by_group_id(group_id)?;
+            groups.insert(dbgrp.id, grp);
+            let Some((_, target_group)) = groups
+                .iter_mut()
+                .find(|f| f.1.group_id().as_slice() == group_id)
+            else {
+                return Err(ConanGroupError::NotFound.into());
+            };
+            target_group
         };
         let keypackages = core::slice::from_ref(&key_package);
         let (_commit, welcome, _) =
@@ -169,7 +183,11 @@ impl CommandHandler {
         Ok(())
     }
 
-    pub fn handle_msg_welcome(&self, peer_idx: u8, welcome: Welcome) -> Result<(), Box<dyn Error>> {
+    pub fn handle_msg_welcome(
+        &self,
+        peer_idx: u16,
+        welcome: Welcome,
+    ) -> Result<(), Box<dyn Error>> {
         println!("group welcome");
         let mut peers = self.peers.write().unwrap();
         let Some(peer) = peers.get_mut(&peer_idx) else {
@@ -202,7 +220,7 @@ impl CommandHandler {
 
     pub fn handle_msg_group_verified(
         &self,
-        peer_idx: u8,
+        peer_idx: u16,
         group_id: &[u8],
     ) -> Result<(), Box<dyn Error>> {
         println!("group verified");
@@ -247,7 +265,7 @@ impl CommandHandler {
             if peer.id == 1 {
                 continue;
             }
-            let Some(peer) = peers.get_mut(&(peer.id as u8)) else {
+            let Some(peer) = peers.get_mut(&peer.id) else {
                 continue;
             };
             let message = grp
@@ -263,7 +281,7 @@ impl CommandHandler {
         Ok(())
     }
 
-    pub fn handle_msg_group_error(&self, peer_idx: u8, err: String) -> Result<(), Box<dyn Error>> {
+    pub fn handle_msg_group_error(&self, peer_idx: u16, err: String) -> Result<(), Box<dyn Error>> {
         let Ok(mut invitation) = self.invitation_memory.write() else {
             return Err("Cannot write to group.".into());
         };
@@ -287,7 +305,7 @@ impl CommandHandler {
 
     pub fn handle_group_message(
         &self,
-        peer_idx: u8,
+        peer_idx: u16,
         group_id: &[u8],
         message: &[u8],
     ) -> Result<(), Box<dyn Error>> {
@@ -328,7 +346,7 @@ impl CommandHandler {
         Ok(())
     }
 
-    pub fn remove_peer(&self, idx: u8) -> Result<(), Box<dyn Error>> {
+    pub fn remove_peer(&self, idx: u16) -> Result<(), Box<dyn Error>> {
         if let Ok(mut guard) = self.peers.write()
             && let Some(conn) = guard.remove(&idx)
         {

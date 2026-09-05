@@ -18,34 +18,36 @@ pub enum IPCCmd {
     Tick,
     /// Connect with given peer (peer address, port)
     Connect(String, u16),
+    /// Disconnect from given peer (peer idx)
+    Disconnect(u16),
     /// Send Text to Peer (peer index, text)
-    Text(u8, String),
+    Text(u16, String),
     /// Get list of all peers
     PeerList,
     /// Get Chat List for a given contact
     ChatList {
-        peer_id: u8,
+        peer_id: u16,
         msg_amount: u8,
     },
     /// Get Group Chats for a given group
     GroupChatList {
         /// Group id
-        group_idx: u8,
+        group_idx: u16,
         /// Last amount of messages to get
         msg_amount: u8,
     },
     /// Renames a Peer with provided name
-    RenamePeer(u8, String),
+    RenamePeer(u16, String),
     /// Send Text to Group (group index, text)
-    GroupText(u8, String),
+    GroupText(u16, String),
     /// Deletes peer with provided database idx
-    DeletePeer(u32),
+    DeletePeer(u16),
     /// Deletes group with provided database idx
-    DeleteGroup(u32),
+    DeleteGroup(u16),
     /// Creates a new group with provided name or generate a random name
     NewGroup(Option<String>),
     /// Add member to a group (group index, peer index)
-    AddToGroup(u32, u32),
+    AddToGroup(u16, u16),
     /// Get List of groups
     GroupList,
     /// Connect to a group given database index
@@ -58,17 +60,18 @@ pub enum IPCCmd {
 pub enum IPCRes {
     ServerStarted(bool),
     Connected(String, u16),
-    Text(u8, String),
+    Text(u16, String),
     Notification(String),
     Error(String),
     PeerList(Vec<Peer>),
-    ChatList { peer_id: u8, chats: Vec<Chat> },
+    ChatList { peer_id: u16, chats: Vec<Chat> },
     Tock,
-    DeletedPeer(u32),
-    DeletedGroup(u32),
-    RenamedPeer(u32),
+    DeletedPeer(u16),
+    DeletedGroup(u16),
+    RenamedPeer(u16),
     GroupList(Vec<DBGroup>),
-    GroupChatList { group_idx: u8, chats: Vec<Chat> },
+    GroupChatList { group_idx: u16, chats: Vec<Chat> },
+    GroupConnected(String, u16),
 }
 
 /// # Panics

@@ -114,7 +114,13 @@ impl MainComponents for App {
         let group_items = self
             .groups
             .iter()
-            .map(|i| ListItem::new(i.name.clone()).style(Style::new().white()))
+            .map(|i| {
+                ListItem::new(i.name.clone()).style(if i.connected {
+                    Style::new().green()
+                } else {
+                    Style::new().white()
+                })
+            })
             .collect::<Vec<_>>();
 
         list_items.push(ListItem::new("Groups"));

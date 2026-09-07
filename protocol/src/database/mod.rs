@@ -70,7 +70,7 @@ pub fn setup_db(db_path: &str) -> Result<(), Box<dyn std::error::Error>> {
         CREATE TABLE IF NOT EXISTS peer (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT,
-        address TEXT CHECK(address LIKE '%.onion' AND LENGTH(address) = 62),
+        address TEXT CHECK(address LIKE '%.onion' AND LENGTH(address) = 62) UNIQUE,
         is_friend BOOLEAN DEFAULT FALSE
         );
                 ",

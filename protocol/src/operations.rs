@@ -1,17 +1,30 @@
+use crate::comm::enums::IPCRes;
+use crate::comm::error::ConanError;
 use crate::config::parse_config;
 use crate::crypto::aead::{self, EncryptedMessage, MessageKey};
 use crate::crypto::ratchet::{RatchetMessage, RatchetSession};
+use crate::entities::database::peer::{Peer, PeerData};
+use crate::entities::server::slave::Slave;
+use crate::extras::generate_name;
+use crate::msg::{Internal, PeerStatus};
 use crate::{constants::ARTI_PRIVATE_KEY, msg::Msg};
-use arti_client::DataStream;
+use arti_client::{DataStream, TorClient};
 use base64::Engine;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey, ed25519::signature::rand_core::OsRng};
 use futures::AsyncReadExt as FutureRead;
+use rusqlite::Connection;
 use safelog::DisplayRedacted;
 use ssh_encoding::Decode;
+use std::collections::HashMap;
+use std::sync::RwLock;
+use std::sync::atomic::AtomicU8;
 use std::{error::Error, fs::File, io::Read, str::FromStr, sync::Arc};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
-use tor_hsservice::HsId;
+use tokio::sync::broadcast;
+use tokio::task::JoinSet;
+use tor_hsservice::{HsId, RunningOnionService};
 use tor_llcrypto::pk::ed25519::ExpandedKeypair;
+use tor_rtcompat::PreferredRuntime;
 use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
 
 /// Handshake-only encryption using the static shared secret.
@@ -375,4 +388,139 @@ where
     ratchet
         .decrypt(&ratchet_msg, b"")
         .map_err(|e| format!("Decryption failed: {e}").into())
+}
+/// Connects to Peer's Tor Address as a dialer (Seeking connection)
+/// # Errors
+/// # Panics
+pub async fn connect_as_dialer(
+    tor_client: Arc<TorClient<PreferredRuntime>>,
+    msg_sender: broadcast::Sender<IPCRes>,
+    dbconn: &mut Connection,
+    response_sender: broadcast::Sender<(u16, Internal)>,
+    peers: Arc<RwLock<HashMap<u16, Slave>>>,
+    service: Arc<RunningOnionService>,
+    addr: String,
+    port: u16,
+) -> Result<(), Box<dyn Error>> {
+    if let Some(hsid) = service.onion_address()
+        && addr == hsid.display_unredacted().to_string()
+    {
+        msg_sender.send(IPCRes::Error("Cannot connect to Self.".to_string()))?;
+        return Ok(());
+    }
+    // checking if peer is already in our connection
+    {
+        let peer = dbconn.get_peer_from_addr(&addr)?;
+        if let Some(peer) = peer {
+            #[allow(clippy::cast_possible_truncation)]
+            if peers.read().unwrap().contains_key(&peer.id) {
+                msg_sender.send(IPCRes::Connected(addr, port))?;
+                msg_sender.send(IPCRes::Notification(format!(
+                    "Already connected to {}",
+                    peer.name
+                )))?;
+                return Ok(());
+            }
+        }
+    }
+    let service = Arc::clone(&service);
+    let msg_sender = msg_sender.clone();
+    for i in 1..=5 {
+        println!("Connecting to {addr}");
+        match single_connect_as_dialer(
+            Arc::clone(&tor_client),
+            Arc::clone(&service),
+            msg_sender.clone(),
+            dbconn,
+            response_sender.clone(),
+            Arc::clone(&peers),
+            addr.clone(),
+            port,
+        )
+        .await
+        {
+            Ok(_) => {
+                break;
+            }
+            Err(e) => eprintln!("Error while connecting:\n{e:?}"),
+        }
+        if i == 5 {
+            msg_sender
+                .send(IPCRes::Error(
+                    "Failed to Connect.\nPlease check your Internet connection".to_string(),
+                ))
+                .unwrap();
+        } else {
+            msg_sender
+                .send(IPCRes::Notification(format!(
+                    "Retrying Connection. [{i}/5]"
+                )))
+                .unwrap();
+            eprintln!("Retrying...");
+        }
+    }
+    Ok(())
+}
+
+pub async fn single_connect_as_dialer(
+    tor_client: Arc<TorClient<PreferredRuntime>>,
+    service: Arc<RunningOnionService>,
+    msg_sender: broadcast::Sender<IPCRes>,
+    dbconn: &mut Connection,
+    response_sender: broadcast::Sender<(u16, Internal)>,
+    peers: Arc<RwLock<HashMap<u16, Slave>>>,
+    addr: String,
+    port: u16,
+) -> Result<(), ConanError> {
+    let Ok(stream) = tor_client.connect(&(addr.clone(), port)).await else {
+        return Err(ConanError::ConnectionError);
+    };
+    let (mut reader, mut writer) = tokio::io::split(stream);
+
+    let local_hsid = service
+        .onion_address()
+        .ok_or("Onion Address Not found.")
+        .unwrap();
+    let session = match dialer_actor(&mut reader, &mut writer, local_hsid, &addr).await {
+        Ok(s) => s,
+        Err(e) => {
+            let msg = format!("Error while Reaching out.\n{e:?}");
+            msg_sender.send(IPCRes::Error(msg.clone())).unwrap();
+            return Err(ConanError::ConnectionError);
+        }
+    };
+    let known = dbconn.get_peer_from_addr(&addr).unwrap();
+    let trans = dbconn.transaction().unwrap();
+    let name = generate_name(3..10);
+    let idx = if let Some(known_peer) = known {
+        known_peer.id
+    } else {
+        let peer = Peer::build(&name, &addr, true);
+        let peer = trans.insert_peer(peer).unwrap();
+        peer.id
+    };
+
+    #[allow(clippy::cast_possible_truncation)]
+    let mut conn = Slave::build(
+        idx,
+        reader,
+        writer,
+        service,
+        msg_sender.clone(),
+        response_sender,
+        Some(Arc::new(tokio::sync::RwLock::new(session))),
+    )
+    .unwrap();
+    if conn.spawn_communication().is_ok() {
+        let mut peers = peers.write().unwrap();
+        #[allow(clippy::cast_possible_truncation)]
+        peers.insert(idx, conn);
+        trans.commit().unwrap();
+    } else {
+        _ = trans.rollback();
+    }
+    println!("Exchange Complete..");
+    msg_sender.send(IPCRes::Connected(addr, port)).unwrap();
+
+    Ok(())
 }

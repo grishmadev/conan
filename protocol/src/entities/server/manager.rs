@@ -38,7 +38,7 @@ use crate::{
     extras::{codec::JsonCodec, generate_name, mls_provider::ConanMlsProvider},
     mls::ConanGroup,
     msg::{Internal, Msg, PeerStatus, SlaveCmd},
-    operations::{dialer_actor, signing_key},
+    operations::{connect_as_dialer, signing_key, single_connect_as_dialer},
 };
 
 pub struct Manager {
@@ -198,7 +198,6 @@ impl Manager {
                                     let service = Arc::clone(&service);
                                     let msg_sender = msg_sender.clone();
                                     let response_sender = response_sender.clone();
-                                    let config = config.clone();
                                     match strreq.accept(Connected::new_empty()).await {
                                         Ok(stream) => {
                                             let (reader, writer) = tokio::io::split(stream);
@@ -207,7 +206,6 @@ impl Manager {
                                                 reader,
                                                 writer,
                                                 service,
-                                                config,
                                                 msg_sender,
                                                 response_sender,
                                                 None,
@@ -252,12 +250,7 @@ impl Manager {
     /// Connects to Peer's Tor Address as a dialer (Seeking connection)
     /// # Errors
     /// # Panics
-    pub fn connect_as_dialer(
-        &mut self,
-        addr: String,
-        port: u16,
-        is_group: bool,
-    ) -> Result<PeerStatus, Box<dyn Error>> {
+    pub fn connect_as_dialer(&mut self, addr: String, port: u16) -> Result<(), Box<dyn Error>> {
         let tor_client = Arc::clone(&self.tor_client);
         let msg_sender = self.msg_sender.clone();
         let mut dbconn = Connection::open(&self.config.db_path)?;
@@ -285,90 +278,22 @@ impl Manager {
             }
         }
         let service = Arc::clone(&self.service);
-        let config = self.config.clone();
         let msg_sender = self.msg_sender.clone();
         tokio::spawn(async move {
-            let mut stream = None;
-            for i in 1..=5 {
-                println!("Connecting to {addr}");
-                match tor_client.connect(&(addr.clone(), port)).await {
-                    Ok(s) => {
-                        stream = Some(s);
-                        break;
-                    }
-                    Err(e) => eprintln!("Error while connecting: {e}\n{e:?}"),
-                }
-                if i == 5 {
-                    msg_sender
-                        .send(IPCRes::Error(
-                            "Failed to Connect.\nPlease check your Internet connection".to_string(),
-                        ))
-                        .unwrap();
-                } else {
-                    msg_sender
-                        .send(IPCRes::Notification(format!(
-                            "Retrying Connection. [{i}/5]"
-                        )))
-                        .unwrap();
-                    eprintln!("Retrying...");
-                }
-            }
-            let Some(stream) = stream else {
-                msg_sender.send(IPCRes::Error(format!(
-                    "Could not connect to {addr}. Make sure the address is correct and server active.."
-                ))).unwrap();
-                return;
-            };
-            let (mut reader, mut writer) = tokio::io::split(stream);
-
-            let local_hsid = service
-                .onion_address()
-                .ok_or("Onion Address Not found.")
-                .unwrap();
-            let session = match dialer_actor(&mut reader, &mut writer, local_hsid, &addr).await {
-                Ok(s) => s,
-                Err(e) => {
-                    let msg = format!("Error while Reaching out.\n{e}");
-                    msg_sender.send(IPCRes::Error(msg)).unwrap();
-                    return;
-                }
-            };
-            let known = dbconn.get_peer_from_addr(&addr).unwrap();
-            let trans = dbconn.transaction().unwrap();
-            let name = generate_name(3..10);
-            let idx = if let Some(known_peer) = known {
-                known_peer.id
-            } else {
-                let peer = Peer::build(&name, &addr, true);
-                let peer = trans.insert_peer(peer).unwrap();
-                peer.id
-            };
-
-            #[allow(clippy::cast_possible_truncation)]
-            let mut conn = Slave::build(
-                idx,
-                reader,
-                writer,
-                service,
-                config,
-                msg_sender.clone(),
+            connect_as_dialer(
+                tor_client,
+                msg_sender,
+                &mut dbconn,
                 response_sender,
-                Some(Arc::new(tokio::sync::RwLock::new(session))),
+                peers,
+                service,
+                addr,
+                port,
             )
+            .await
             .unwrap();
-            if conn.spawn_communication().is_ok() {
-                let mut peers = peers.write().unwrap();
-                #[allow(clippy::cast_possible_truncation)]
-                peers.insert(idx, conn);
-                trans.commit().unwrap();
-            } else {
-                _ = trans.rollback();
-            }
-            println!("Exchange Complete..");
-            msg_sender.send(IPCRes::Connected(addr, port)).unwrap();
         });
-
-        Ok(PeerStatus::Connected)
+        Ok(())
     }
 
     pub fn get_mls_group_from_idx(&self, idx: u16) -> Result<MlsGroup, Box<dyn Error>> {
@@ -492,19 +417,55 @@ impl Manager {
                 members_to_connect.push(peer.clone());
             }
         }
+
+        let mut set = tokio::task::JoinSet::new();
+
         for peer in members_to_connect {
+            let tor_client = Arc::clone(&self.tor_client);
+            let peers = Arc::clone(&self.peers);
+            let service = Arc::clone(&self.service);
+            let mut dbconn = Connection::try_clone(&self.dbconn)?;
+            let msg_sender = self.msg_sender.clone();
+            let response_sender = self.response_sender.clone();
             println!("connect member");
-            if let Err(e) = self.connect_as_dialer(peer.address, 80, true) {
-                eprintln!("Error while connecting to group member.. {e:?}");
-            } else {
-                println!("Connected to group member. inserting: {}", peer.id);
-                let peers = self.peers.write().unwrap();
-                if let Some(peer) = peers.get(&peer.id) {
-                    peer.command_sender
-                        .send(SlaveCmd::Msg(Msg::InitiateGroup(group.group_id().to_vec())))?;
+            set.spawn(async move {
+                single_connect_as_dialer(
+                    tor_client,
+                    service,
+                    msg_sender,
+                    &mut dbconn,
+                    response_sender,
+                    peers,
+                    peer.address,
+                    80,
+                )
+                .await
+                // {
+                //     eprintln!("Error while connecting to group member.. {err:?}");
+                // } else {
+                //     println!("Connected to group member. inserting: {}", peer.id);
+                //     let peers = peers.write().unwrap();
+                //     if let Some(peer) = peers.get(&peer.id) {
+                //         peer.command_sender
+                //             .send(SlaveCmd::Msg(Msg::InitiateGroup(group_id)))
+                //             .unwrap();
+                //     }
+                // }
+            });
+        }
+        tokio::spawn(async move {
+            while let Some(res) = set.join_next().await {
+                match res {
+                    Ok(res) => {
+                        println!("attempted to join.");
+                    }
+                    _ => {}
                 }
             }
-        }
+
+            // _ =
+        });
+
         Ok(())
     }
 

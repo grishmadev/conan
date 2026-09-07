@@ -1,4 +1,6 @@
-use crate::{crypto::ratchet::RatchetSession, msg::SlaveCmd, operations::send};
+use crate::{
+    config::parse_config, crypto::ratchet::RatchetSession, msg::SlaveCmd, operations::send,
+};
 use arti_client::DataStream;
 use rusqlite::Connection;
 use std::{error::Error, sync::Arc};
@@ -29,7 +31,6 @@ pub struct Slave {
     pub ratchet_session: Option<Arc<RwLock<RatchetSession>>>,
     pub msg_sender: broadcast::Sender<IPCRes>,
     pub service: Arc<RunningOnionService>,
-    pub config: ConanConfig,
 }
 
 impl Slave {
@@ -38,7 +39,6 @@ impl Slave {
         reader: ReadHalf<DataStream>,
         writer: WriteHalf<DataStream>,
         service: Arc<RunningOnionService>,
-        config: ConanConfig,
         msg_sender: broadcast::Sender<IPCRes>,
         response_sender: broadcast::Sender<(u16, Internal)>,
         ratchet_session: Option<Arc<RwLock<RatchetSession>>>,
@@ -52,7 +52,6 @@ impl Slave {
             command_sender: cmd.0,
             command_receiver: Some(cmd.1),
             service,
-            config,
             msg_sender,
             response_sender,
             ratchet_session,
@@ -144,7 +143,8 @@ impl Slave {
         let Some(remote_hsid) = remote_onion_key else {
             return Err("No Remote HsId key assigned. Aborting.".into());
         };
-        let dbconn = Connection::open(&self.config.db_path)?;
+        let config = parse_config()?;
+        let dbconn = Connection::open(&config.db_path)?;
         let peer = if let Some(peer) = dbconn.get_peer_from_addr(&remote_hsid)? {
             peer
         } else {

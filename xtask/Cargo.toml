@@ -8,6 +8,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+database.workspace = true
 conan-protocol.workspace = true
 tokio.workspace = true
 openmls.workspace = true

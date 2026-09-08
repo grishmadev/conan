@@ -18,6 +18,7 @@ workspace = true
 [dependencies]
 database.workspace = true
 extras.workspace = true
+crypto.workspace = true
 arti-client.workspace = true
 tokio.workspace = true
 tokio-rustls.workspace = true

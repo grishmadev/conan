@@ -3,10 +3,9 @@ use crate::{
     msg::{Internal, Msg},
     operations::{listener_actor, recv},
 };
-use crate::{
-    config::parse_config, crypto::ratchet::RatchetSession, msg::SlaveCmd, operations::send,
-};
+use crate::{config::parse_config, msg::SlaveCmd, operations::send};
 use arti_client::DataStream;
+use crypto::ratchet::RatchetSession;
 use database::{
     entities::peer::{Peer, PeerData},
     rusqlite::Connection,

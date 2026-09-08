@@ -1,4 +1,5 @@
-use conanprotocol::{config::parse_config, entities::database::group_chat::ConnectionGroupChat};
+use conanprotocol::config::parse_config;
+use database::entities::group_chat::ConnectionGroupChat;
 use rusqlite::Connection;
 use std::error::Error;
 

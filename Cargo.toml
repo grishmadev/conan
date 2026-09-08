@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["tui", "server", "protocol", "xtask", "database", "extras"]
+members = ["tui", "server", "protocol", "xtask", "database", "extras", "crypto"]
 
 [workspace.package]
 authors = ["grishma <grishmadev@proton.me>"]
@@ -14,6 +14,7 @@ repository = "https://github.com/grishmadev/conan"
 conan-protocol = { path = "protocol/", version = "1.0.0" }
 database = { path = "database/", version = "1.0.0" }
 extras = { path = "extras/", version = "1.0.0" }
+crypto = { path = "crypto/", version = "1.0.0" }
 tokio = { version = "1.52.3", features = ["full"] }
 arti-client = { version = "0.45.0", features = [
   "onion-service-client",

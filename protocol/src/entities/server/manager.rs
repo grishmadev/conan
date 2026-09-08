@@ -1,11 +1,20 @@
 use arti_client::{BootstrapBehavior, TorClient, TorClientConfig, config::CfgPath};
+use database::{
+    ConnectionClone,
+    entities::{
+        group::ConnectionGroup,
+        group_chat::{ConnectionGroupChat, GroupChat},
+        peer::{Peer, PeerData},
+    },
+    rusqlite::Connection,
+};
+use extras::{codec::JsonCodec, generate_name};
 use futures::{StreamExt, stream::BoxStream};
 use openmls::{
     group::{GroupId, MlsGroup},
     prelude::tls_codec::Serialize,
 };
 use openmls_sqlite_storage::SqliteStorageProvider;
-use rusqlite::Connection;
 use safelog::DisplayRedacted;
 use std::{
     collections::HashMap,
@@ -25,19 +34,11 @@ use crate::{
     comm::enums::{IPCCmd, IPCRes},
     config::ConanConfig,
     constants::BOUNDED_CHANNEL_SIZE,
-    database::ConnectionClone,
     debug,
-    entities::{
-        database::{
-            group::ConnectionGroup,
-            group_chat::{ConnectionGroupChat, GroupChat},
-            peer::{Peer, PeerData},
-        },
-        server::{manager_assistant::CommandHandler, slave::Slave},
-    },
-    extras::{codec::JsonCodec, generate_name, mls_provider::ConanMlsProvider},
+    entities::server::{manager_assistant::CommandHandler, slave::Slave},
+    extras::mls_provider::ConanMlsProvider,
     mls::ConanGroup,
-    msg::{Internal, Msg, PeerStatus, SlaveCmd},
+    msg::{Internal, Msg, SlaveCmd},
     operations::{connect_as_dialer, signing_key, single_connect_as_dialer},
 };
 
@@ -174,7 +175,6 @@ impl Manager {
         let response_sender = self.response_sender.clone();
         let peers = Arc::clone(&self.peers);
         let service = self.service.clone();
-        let config = self.config.clone();
         tokio::spawn(async move {
             let msg_sender = msg_sender.clone();
             let response_sender = response_sender.clone();
@@ -182,7 +182,6 @@ impl Manager {
             let service = Arc::clone(&service);
             loop {
                 while let Some(rendreq) = stream.next().await {
-                    let config = config.clone();
                     let msg_sender = msg_sender.clone();
                     let response_sender = response_sender.clone();
                     let peers = Arc::clone(&peers);
@@ -260,7 +259,7 @@ impl Manager {
             && addr == hsid.display_unredacted().to_string()
         {
             msg_sender.send(IPCRes::Error("Cannot connect to Self.".to_string()))?;
-            return Ok(PeerStatus::NotFound);
+            return Ok(());
         }
         // checking if peer is already in our connection
         {
@@ -273,7 +272,7 @@ impl Manager {
                         "Already connected to {}",
                         peer.name
                     )))?;
-                    return Ok(PeerStatus::Connected);
+                    return Ok(());
                 }
             }
         }
@@ -427,7 +426,6 @@ impl Manager {
             let mut dbconn = Connection::try_clone(&self.dbconn)?;
             let msg_sender = self.msg_sender.clone();
             let response_sender = self.response_sender.clone();
-            println!("connect member");
             set.spawn(async move {
                 single_connect_as_dialer(
                     tor_client,
@@ -440,30 +438,34 @@ impl Manager {
                     80,
                 )
                 .await
-                // {
-                //     eprintln!("Error while connecting to group member.. {err:?}");
-                // } else {
-                //     println!("Connected to group member. inserting: {}", peer.id);
-                //     let peers = peers.write().unwrap();
-                //     if let Some(peer) = peers.get(&peer.id) {
-                //         peer.command_sender
-                //             .send(SlaveCmd::Msg(Msg::InitiateGroup(group_id)))
-                //             .unwrap();
-                //     }
-                // }
             });
         }
+        let msg_sender = self.msg_sender.clone();
+        let dbgrp = self
+            .dbconn
+            .get_group_by_group_id(&group.group_id().to_vec())?;
+        let peers = Arc::clone(&self.peers);
+        let group_id = dbgrp.group_id.clone();
+
         tokio::spawn(async move {
-            while let Some(res) = set.join_next().await {
-                match res {
-                    Ok(res) => {
-                        println!("attempted to join.");
+            while let Some(Ok(res)) = set.join_next().await {
+                let group_id = group_id.clone();
+                if let Ok(idx) = res {
+                    let peers = peers.write().unwrap();
+                    if let Some(target) = peers.get(&idx) {
+                        target
+                            .command_sender
+                            .send(SlaveCmd::Msg(Msg::InitiateGroup(group_id)))
+                            .unwrap();
                     }
-                    _ => {}
+                    println!("attempted to join.");
                 }
             }
 
-            // _ =
+            _ = msg_sender.send(IPCRes::GroupConnected(
+                format!("Connected to {}", dbgrp.name).to_string(),
+                dbgrp.id,
+            ));
         });
 
         Ok(())

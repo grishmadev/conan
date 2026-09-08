@@ -3,21 +3,23 @@ use crate::{
         enums::{IPCRes, from_bytes, to_bytes},
         notification::ConanNotif,
     },
-    database::FromConnection,
-    entities::{
-        database::{
-            chat::{Chat, ChatData},
-            group::{ConnectionGroup, DBGroup},
-            group_chat::{ConnectionGroupChat, GroupChat},
-            member::GroupMember,
-            peer::PeerData,
-        },
-        server::slave::Slave,
-    },
-    extras::{codec::JsonCodec, generate_name, mls_provider::ConanMlsProvider},
+    entities::server::slave::Slave,
+    extras::mls_provider::ConanMlsProvider,
     mls::{ConanGroup, ConanGroupError},
     msg::{Msg, SlaveCmd},
 };
+use database::{
+    FromConnection,
+    entities::{
+        chat::{Chat, ChatData},
+        group::{ConnectionGroup, DBGroup},
+        group_chat::{ConnectionGroupChat, GroupChat},
+        member::GroupMember,
+        peer::PeerData,
+    },
+    rusqlite::Connection,
+};
+use extras::{codec::JsonCodec, generate_name};
 use openmls::{
     group::{GroupId, MlsGroup},
     prelude::{
@@ -27,7 +29,6 @@ use openmls::{
 };
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_sqlite_storage::{Codec, SqliteStorageProvider};
-use rusqlite::Connection;
 use std::{
     collections::HashMap,
     error::Error,

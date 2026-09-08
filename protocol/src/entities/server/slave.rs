@@ -1,23 +1,23 @@
 use crate::{
+    comm::enums::IPCRes,
+    msg::{Internal, Msg},
+    operations::{listener_actor, recv},
+};
+use crate::{
     config::parse_config, crypto::ratchet::RatchetSession, msg::SlaveCmd, operations::send,
 };
 use arti_client::DataStream;
-use rusqlite::Connection;
+use database::{
+    entities::peer::{Peer, PeerData},
+    rusqlite::Connection,
+};
+use extras::generate_name;
 use std::{error::Error, sync::Arc};
 use tokio::{
     io::{AsyncWriteExt, ReadHalf, WriteHalf},
     sync::{RwLock, broadcast},
 };
 use tor_hsservice::RunningOnionService;
-
-use crate::{
-    comm::enums::IPCRes,
-    config::ConanConfig,
-    entities::database::peer::{Peer, PeerData},
-    extras::generate_name,
-    msg::{Internal, Msg},
-    operations::{listener_actor, recv},
-};
 
 pub struct Slave {
     pub id: u16,

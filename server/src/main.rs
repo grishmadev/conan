@@ -1,20 +1,18 @@
 use conanprotocol::{
     comm::enums::{IPCCmd, IPCRes},
     config::parse_config,
-    entities::{
-        database::{
-            chat::{Chat, ChatData},
-            group::{ConnectionGroup, DBGroup},
-            group_chat::ConnectionGroupChat,
-            peer::PeerData,
-        },
-        server::{manager::Manager, master::Master},
-    },
-    extras::generate_name,
+    entities::server::{manager::Manager, master::Master},
     mls::ConanGroup,
     msg::{Msg, SlaveCmd},
     operations::signing_key,
 };
+use database::entities::{
+    chat::{Chat, ChatData},
+    group::{ConnectionGroup, DBGroup},
+    group_chat::ConnectionGroupChat,
+    peer::PeerData,
+};
+use extras::generate_name;
 use openmls::group::MlsGroup;
 use std::{
     error::Error,
@@ -49,7 +47,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
                 IPCCmd::Connect(addr, port) => {
                     println!("addr to connect: {addr}:{port}");
-                    if let Err(e) = manager.connect_as_dialer(addr, port, false) {
+                    if let Err(e) = manager.connect_as_dialer(addr, port) {
                         return Err(format!("Cannot connect as Dialer:\n{e}").into());
                     }
                 }

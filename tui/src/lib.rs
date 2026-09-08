@@ -12,9 +12,9 @@ use bincode::config;
 use conanprotocol::{
     comm::enums::{IPCCmd, IPCRes, encode},
     config::ConanConfig,
-    entities::database::{chat::Chat, group::DBGroup, peer::Peer},
     msg::Mode,
 };
+use database::entities::{chat::Chat, group::DBGroup, peer::Peer};
 use ratatui::{
     Frame, Terminal,
     layout::{Constraint, Direction, HorizontalAlignment, Layout},
@@ -204,7 +204,7 @@ impl App {
 
                 IPCRes::Connected(_, _) => {
                     if let Screen::LoadingScreen { ref mode, .. } = self.active_screen
-                        && matches!(mode, LoadingMode::NewPeer)
+                        && matches!(mode, LoadingMode::PeerConnect)
                     {
                         self.active_screen = Screen::None;
                     }
@@ -224,6 +224,19 @@ impl App {
 
                 IPCRes::PeerList(peers) => {
                     self.contacts = peers;
+                }
+
+                IPCRes::GroupConnected(msg, _) => {
+                    self.notification = Some((msg, Instant::now()));
+                    if matches!(
+                        self.active_screen,
+                        Screen::LoadingScreen {
+                            mode: LoadingMode::GroupConnect,
+                            ..
+                        }
+                    ) {
+                        self.active_screen = Screen::None;
+                    }
                 }
 
                 IPCRes::GroupList(list) => {

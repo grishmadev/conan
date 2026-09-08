@@ -1,15 +1,13 @@
+use crate::extras::mls_provider::ConanMlsProvider;
 use crate::{
     comm::enums::{from_bytes, to_bytes},
     config::parse_config,
-    database::FromConnection,
-    extras::{codec::JsonCodec, mls_provider::ConanMlsProvider},
 };
+use database::{FromConnection, rusqlite::Connection};
 use ed25519_dalek::{SigningKey, VerifyingKey};
+use extras::codec::JsonCodec;
 use openmls::{
-    group::{
-        CommitMessageBundle, MlsGroup, MlsGroupCreateConfigBuilder, MlsGroupJoinConfig,
-        StagedWelcome,
-    },
+    group::{MlsGroup, MlsGroupCreateConfigBuilder, MlsGroupJoinConfig, StagedWelcome},
     prelude::{
         BasicCredential, Ciphersuite, CredentialWithKey, KeyPackage, KeyPackageBundle,
         KeyPackageNewError, SignatureScheme, Welcome,
@@ -17,7 +15,6 @@ use openmls::{
 };
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_sqlite_storage::SqliteStorageProvider;
-use rusqlite::Connection;
 use std::error::Error;
 use thiserror::Error;
 use tor_llcrypto::pk::ed25519::ExpandedKeypair;

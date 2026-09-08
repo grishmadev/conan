@@ -1,9 +1,8 @@
+use database::{FromConnection, rusqlite::Connection};
+use extras::codec::JsonCodec;
 use openmls::prelude::OpenMlsProvider;
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use openmls_sqlite_storage::{Codec, SqliteStorageProvider};
-use rusqlite::Connection;
-
-use crate::{database::FromConnection, extras::codec::JsonCodec};
 
 pub struct ConanMlsProvider<C = JsonCodec>
 where

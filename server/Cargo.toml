@@ -13,6 +13,8 @@ path = "src/main.rs"
 doctest = false
 
 [dependencies]
+database.workspace = true
+extras.workspace = true
 conan-protocol.workspace = true
 tokio.workspace = true
 tor-hsservice.workspace = true

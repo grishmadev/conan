@@ -1,10 +1,13 @@
+pub mod entities;
 pub(crate) mod migration;
+pub use rusqlite;
 use std::fs;
 
+use extras::codec::JsonCodec;
 use openmls_sqlite_storage::{Codec, SqliteStorageProvider};
 use rusqlite::Connection;
 
-use crate::{database::migration::run_is_friend_migration, extras::codec::JsonCodec};
+use crate::migration::run_is_friend_migration;
 
 pub trait ConnectionClone {
     fn try_clone(&self) -> Result<Connection, Box<dyn std::error::Error>>;

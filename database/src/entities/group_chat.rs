@@ -1,4 +1,4 @@
-use crate::entities::database::group::ConnectionGroup;
+use crate::entities::group::ConnectionGroup;
 use bincode::{Decode, Encode};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};

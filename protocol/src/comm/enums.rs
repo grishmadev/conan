@@ -3,7 +3,7 @@ use std::error::Error;
 use bincode::{Decode, Encode, config};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::entities::database::{chat::Chat, group::DBGroup, peer::Peer};
+use database::entities::{chat::Chat, group::DBGroup, peer::Peer};
 
 pub struct Chats {}
 

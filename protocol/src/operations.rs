@@ -3,25 +3,23 @@ use crate::comm::error::ConanError;
 use crate::config::parse_config;
 use crate::crypto::aead::{self, EncryptedMessage, MessageKey};
 use crate::crypto::ratchet::{RatchetMessage, RatchetSession};
-use crate::entities::database::peer::{Peer, PeerData};
 use crate::entities::server::slave::Slave;
-use crate::extras::generate_name;
-use crate::msg::{Internal, PeerStatus};
+use crate::msg::Internal;
 use crate::{constants::ARTI_PRIVATE_KEY, msg::Msg};
 use arti_client::{DataStream, TorClient};
 use base64::Engine;
+use database::entities::peer::{Peer, PeerData};
+use database::rusqlite::Connection;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey, ed25519::signature::rand_core::OsRng};
+use extras::generate_name;
 use futures::AsyncReadExt as FutureRead;
-use rusqlite::Connection;
 use safelog::DisplayRedacted;
 use ssh_encoding::Decode;
 use std::collections::HashMap;
 use std::sync::RwLock;
-use std::sync::atomic::AtomicU8;
 use std::{error::Error, fs::File, io::Read, str::FromStr, sync::Arc};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::sync::broadcast;
-use tokio::task::JoinSet;
 use tor_hsservice::{HsId, RunningOnionService};
 use tor_llcrypto::pk::ed25519::ExpandedKeypair;
 use tor_rtcompat::PreferredRuntime;
@@ -471,7 +469,7 @@ pub async fn single_connect_as_dialer(
     peers: Arc<RwLock<HashMap<u16, Slave>>>,
     addr: String,
     port: u16,
-) -> Result<(), ConanError> {
+) -> Result<u16, ConanError> {
     let Ok(stream) = tor_client.connect(&(addr.clone(), port)).await else {
         return Err(ConanError::ConnectionError);
     };
@@ -522,5 +520,5 @@ pub async fn single_connect_as_dialer(
     println!("Exchange Complete..");
     msg_sender.send(IPCRes::Connected(addr, port)).unwrap();
 
-    Ok(())
+    Ok(idx)
 }

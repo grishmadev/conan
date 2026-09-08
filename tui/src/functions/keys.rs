@@ -1,7 +1,8 @@
 use std::time::{Duration, Instant};
 
-use conanprotocol::{comm::enums::IPCCmd, entities::database::chat::Chat, msg::Mode};
+use conanprotocol::{comm::enums::IPCCmd, msg::Mode};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use database::entities::chat::Chat;
 
 use crate::{
     App,
@@ -202,7 +203,7 @@ impl Keys for App {
                                 // Self: we don't need loading screen, just load the chat
                                 #[allow(clippy::cast_possible_truncation)]
                                 self.send(IPCCmd::ChatList {
-                                    peer_id: idx as u16,
+                                    peer_id: peer.id,
                                     msg_amount: 50,
                                 })
                                 .await?;
@@ -211,7 +212,7 @@ impl Keys for App {
                             }
                             self.active_screen = Screen::LoadingScreen {
                                 loading_text: "Connecting...".into(),
-                                mode: LoadingMode::NewPeer,
+                                mode: LoadingMode::PeerConnect,
                             };
                             self.send(IPCCmd::Connect(peer.address.clone(), 80)).await?;
                             self.send(IPCCmd::ChatList {
@@ -223,6 +224,10 @@ impl Keys for App {
                         } else {
                             let Some(grp) = self.groups.get(idx) else {
                                 return Ok(());
+                            };
+                            self.active_screen = Screen::LoadingScreen {
+                                loading_text: format!("Connecting to {}..", grp.name).into(),
+                                mode: LoadingMode::GroupConnect,
                             };
                             self.send(IPCCmd::GroupConnect(grp.id)).await?;
                         }
@@ -365,7 +370,7 @@ impl Keys for App {
                     self.send(msg).await?;
                     self.active_screen = Screen::LoadingScreen {
                         loading_text: "Adding peer...".to_string(),
-                        mode: LoadingMode::NewPeer,
+                        mode: LoadingMode::PeerConnect,
                     };
                 }
                 InputMode::RenamePeer => {

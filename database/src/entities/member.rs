@@ -2,7 +2,7 @@ use std::error::Error;
 
 use rusqlite::{Connection, params};
 
-use crate::entities::database::{
+use crate::entities::{
     group::{ConnectionGroup, DBGroup},
     peer::{Peer, PeerData},
 };

@@ -74,9 +74,22 @@ impl Keys for App {
                     };
                 }
             }
-            KeyCode::Char('d')
-                if matches!(self.tab, Tab::Contact) && key.modifiers == KeyModifiers::SHIFT =>
+            KeyCode::Char('D') | KeyCode::Char('d')
+                if matches!(self.tab, Tab::Contact)
+                    && key.modifiers.contains(KeyModifiers::SHIFT) =>
             {
+                let (is_peer, idx) = self.current_contact();
+                let Some(idx) = idx else {
+                    self.notification = Some(("No peer selected.".into(), Instant::now()));
+                    return Ok(());
+                };
+                if is_peer
+                    && let Some(peer) = self.contacts.get(idx)
+                    && !peer.connected
+                {
+                    self.notification = Some(("Peer is not connected".into(), Instant::now()));
+                    return Ok(());
+                }
                 if self.active_screen == Screen::None {
                     self.active_screen = Screen::ConfirmScreen {
                         prompt: "Are you sure you want to disconnect?".into(),
@@ -410,43 +423,44 @@ impl Keys for App {
             KeyCode::Left | KeyCode::Right => {
                 *yes_selected = !*yes_selected;
             }
-            KeyCode::Enter => match mode {
-                ConfirmMode::Exit => {
-                    if *yes_selected {
-                        self.running = false;
+            KeyCode::Enter => {
+                match mode {
+                    ConfirmMode::Exit => {
+                        if *yes_selected {
+                            self.running = false;
+                        }
                     }
-                    self.active_screen = Screen::None;
-                }
-                ConfirmMode::DeletePeer => {
-                    if *yes_selected && let Some(idx) = self.contact_idx.selected() {
-                        let is_peer = idx < self.contacts.len();
-                        let idx = if is_peer {
-                            idx
-                        } else {
-                            idx - self.contacts.len() - 1
-                        };
-                        let cmd = if is_peer {
-                            let Some(peer) = self.contacts.get(idx) else {
-                                return Ok(());
+                    ConfirmMode::DeletePeer => {
+                        if *yes_selected && let Some(idx) = self.contact_idx.selected() {
+                            let is_peer = idx < self.contacts.len();
+                            let idx = if is_peer {
+                                idx
+                            } else {
+                                idx - self.contacts.len() - 1
                             };
-                            IPCCmd::DeletePeer(peer.id)
-                        } else {
-                            let Some(group) = self.groups.get(idx) else {
-                                return Ok(());
+                            let cmd = if is_peer {
+                                let Some(peer) = self.contacts.get(idx) else {
+                                    return Ok(());
+                                };
+                                IPCCmd::DeletePeer(peer.id)
+                            } else {
+                                let Some(group) = self.groups.get(idx) else {
+                                    return Ok(());
+                                };
+                                IPCCmd::DeleteGroup(group.id)
                             };
-                            IPCCmd::DeleteGroup(group.id)
-                        };
-                        self.send(cmd).await?;
+                            self.send(cmd).await?;
+                        }
                     }
-                    self.active_screen = Screen::None;
-                }
-                ConfirmMode::DisconnectPeer => {
-                    if *yes_selected && let (true, Some(idx)) = self.current_contact() {
-                        #[allow(clippy::cast_possible_truncation)]
-                        self.send(IPCCmd::Disconnect(idx as u16)).await?;
+                    ConfirmMode::DisconnectPeer => {
+                        if *yes_selected && let (true, Some(idx)) = self.current_contact() {
+                            #[allow(clippy::cast_possible_truncation)]
+                            self.send(IPCCmd::Disconnect(idx as u16)).await?;
+                        }
                     }
                 }
-            },
+                self.active_screen = Screen::None;
+            }
             _ => {}
         }
         Ok(())

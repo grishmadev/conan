@@ -1,16 +1,18 @@
 pub mod entities;
+pub mod error;
 pub(crate) mod migration;
-pub use rusqlite;
-use std::fs;
-
+use crate::migration::run_is_friend_migration;
 use extras::codec::JsonCodec;
 use openmls_sqlite_storage::{Codec, SqliteStorageProvider};
+pub use rusqlite;
 use rusqlite::Connection;
-
-use crate::migration::run_is_friend_migration;
+use std::fs;
 
 pub trait ConnectionClone {
+    /// Clones the Connection via Reference and returns it
+    /// # Errors
     fn try_clone(&self) -> Result<Connection, Box<dyn std::error::Error>>;
+    /// Get `OpenMls` path relevant to current database connection
     fn get_openmls_path(&self) -> String;
 }
 
@@ -22,14 +24,9 @@ impl ConnectionClone for Connection {
     }
 
     fn get_openmls_path(&self) -> String {
-        let mut path = self
-            .path()
-            .unwrap()
-            .split('/')
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>();
+        let mut path = self.path().unwrap().split('/').collect::<Vec<_>>();
         path.pop();
-        path.push("openmls".into());
+        path.push("openmls");
         let path = path.join("/");
         if !fs::exists(&path).unwrap() {
             fs::File::create(&path).unwrap();
@@ -39,6 +36,8 @@ impl ConnectionClone for Connection {
 }
 
 pub trait FromConnection<C: Codec> {
+    /// Get Storage Provider from a Connection
+    /// # Errors
     fn from_db(
         conn: &Connection,
     ) -> Result<SqliteStorageProvider<C, Connection>, Box<dyn std::error::Error>>;

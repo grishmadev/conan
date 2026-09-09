@@ -1,9 +1,10 @@
 use crate::{
     comm::{
         enums::{IPCRes, from_bytes, to_bytes},
+        error::ConanError,
         notification::ConanNotif,
     },
-    entities::server::slave::Slave,
+    entities::slave::Slave,
     extras::mls_provider::ConanMlsProvider,
     mls::{ConanGroup, ConanGroupError},
     msg::{Msg, SlaveCmd},
@@ -170,7 +171,7 @@ impl CommandHandler {
             target_group
         };
         let keypackages = core::slice::from_ref(&key_package);
-        let (_commit, welcome, _) =
+        let (commit, welcome, _) =
             target_group.add_members(&self.provider, &self.signer, keypackages)?;
         let mut peers = self.peers.write().unwrap();
         let Some(peer) = peers.get_mut(&peer_idx) else {
@@ -253,13 +254,6 @@ impl CommandHandler {
         let text = b"Hello there";
         let mut peers = self.peers.write().unwrap();
         let members = grp.members().collect::<Vec<_>>();
-        println!("check 1");
-        members.iter().for_each(|m| {
-            println!(
-                "member onion link: {}",
-                from_bytes::<String>(m.credential.serialized_content()).unwrap()
-            );
-        });
         for m in members {
             let link = from_bytes::<String>(m.credential.serialized_content())?;
             let peer = self.dbconn.get_peer_from_addr(&link)?.unwrap();
@@ -312,12 +306,9 @@ impl CommandHandler {
     ) -> Result<(), Box<dyn Error>> {
         let (message, _) = MlsMessageIn::tls_deserialize_bytes(message)?;
         let mut groups = self.groups.write().unwrap();
-        groups.iter().for_each(|f| {
-            println!("group: {}", f.0);
-        });
         let dbgroup = self.dbconn.get_group_by_group_id(group_id)?;
         let Some(group) = groups.get_mut(&dbgroup.id) else {
-            return Err("Cannot find selected group".into());
+            return Err(ConanError::NotFound.into());
         };
         let message = message.try_into_protocol_message().unwrap();
         let processed_message = group.process_message(&self.provider, message).unwrap();
@@ -326,7 +317,6 @@ impl CommandHandler {
             ProcessedMessageContent::ApplicationMessage(mess) => {
                 let content = mess.into_bytes();
                 let data = String::from_utf8_lossy(&content).to_string();
-                println!("got: {data}");
                 let gc = GroupChat {
                     id: 0,
                     group_id: dbgroup.id,
@@ -336,9 +326,11 @@ impl CommandHandler {
                 };
                 self.dbconn.insert_group_chat(gc)?;
             }
+            ProcessedMessageContent::StagedCommitMessage(msg) => {
+                group.merge_staged_commit(&self.provider, *msg)?;
+            }
             _ => {}
         }
-        group.merge_pending_commit(&self.provider).unwrap();
         Ok(())
     }
 
@@ -352,9 +344,31 @@ impl CommandHandler {
             && let Some(conn) = guard.remove(&idx)
         {
             println!("Removing Connection: {}", conn.id);
-            if let Ok(Some(peer)) = self.dbconn.get_peer_from_id(u16::from(conn.id)) {
+            if let Ok(Some(peer)) = self.dbconn.get_peer_from_id(conn.id) {
                 _ = ConanNotif::Sys(format!("{} disconnected.", peer.name));
             }
+        }
+        let peers = self.peers.write().unwrap();
+        let mut groups_to_kick = vec![];
+        if let Ok(groups) = self.groups.read() {
+            let group_vec = groups.iter().collect::<Vec<_>>();
+            for (idx, grp) in &group_vec {
+                let mut members = grp.get_members()?;
+                for idx in 0..members.len() {
+                    let m = &members[idx];
+                    let peer = self.dbconn.get_peer_from_addr(m)?.unwrap();
+                    if peers.get(&peer.id).is_some() {
+                        members.remove(idx);
+                    }
+                }
+                if !members.is_empty() {
+                    groups_to_kick.push(**idx);
+                }
+            }
+        }
+        let mut groups = self.groups.write().unwrap();
+        for idx in groups_to_kick {
+            groups.remove(&idx);
         }
         Ok(())
     }

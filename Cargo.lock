@@ -1746,6 +1746,7 @@ dependencies = [
  "openmls_sqlite_storage",
  "rusqlite",
  "serde",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

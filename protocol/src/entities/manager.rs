@@ -6,6 +6,7 @@ use database::{
         group_chat::{ConnectionGroupChat, GroupChat},
         peer::{Peer, PeerData},
     },
+    error::DatabaseError,
     rusqlite::Connection,
 };
 use extras::{codec::JsonCodec, generate_name};
@@ -31,11 +32,14 @@ use tor_hsservice::{HsNickname, OnionServiceConfig, RendRequest, RunningOnionSer
 use tor_llcrypto::pk::ed25519::ExpandedKeypair;
 
 use crate::{
-    comm::enums::{IPCCmd, IPCRes},
+    comm::{
+        enums::{IPCCmd, IPCRes},
+        error::ConanError,
+    },
     config::ConanConfig,
     constants::BOUNDED_CHANNEL_SIZE,
     debug,
-    entities::server::{manager_assistant::CommandHandler, slave::Slave},
+    entities::{manager_assistant::CommandHandler, slave::Slave},
     extras::mls_provider::ConanMlsProvider,
     mls::ConanGroup,
     msg::{Internal, Msg, SlaveCmd},
@@ -299,7 +303,7 @@ impl Manager {
         let dbgrp = self.dbconn.get_group_by_idx(idx)?;
         let storage = SqliteStorageProvider::<JsonCodec, _>::new(&self.dbconn);
         let mlsgrp = MlsGroup::load(&storage, &GroupId::from_slice(&dbgrp.group_id))?
-            .ok_or("Cannot find MlsGroup")?;
+            .ok_or(ConanError::NotFound)?;
         Ok(mlsgrp)
     }
 
@@ -310,29 +314,29 @@ impl Manager {
         #[allow(clippy::cast_possible_truncation)]
         let peers = Arc::clone(&self.peers);
         let Ok(mut peers) = peers.write() else {
-            return Err("Could not write to peer".into());
+            return Err(ConanError::ParseError.into());
         };
         #[allow(clippy::cast_possible_truncation)]
         let Some(target) = peers.get_mut(&peer_id) else {
-            return Err("Cannot find target peer.".into());
+            return Err(ConanError::NotFound.into());
         };
 
         target.command_sender.send(SlaveCmd::Msg(Msg::JoinGroup))?;
         #[allow(clippy::cast_possible_truncation)]
         let Ok(mut groups) = self.groups.write() else {
-            return Err("Could not write to groups".into());
+            return Err(ConanError::ParseError.into());
         };
-        let dbgroup = self.dbconn.get_group_by_idx(group_idx as u16)?;
+        let dbgroup = self.dbconn.get_group_by_idx(group_idx)?;
         let self_link = self
             .dbconn
             .get_peer_from_id(1)?
-            .ok_or("Cannot find self link")?
+            .ok_or(ConanError::from(DatabaseError::NotFound))?
             .address;
         let group = MlsGroup::build(&self.identity_key, &self_link)?;
         // Loading it in memory
         groups.insert(group_idx, group);
         let Ok(mut invitation) = self.invitation_memory.write() else {
-            return Err("Could not write to invitation".into());
+            return Err(ConanError::ParseError.into());
         };
         invitation.insert(peer_id, dbgroup.group_id);
         Ok(())
@@ -349,7 +353,7 @@ impl Manager {
         // let config = self.config.clone();
         let expanded_key =
             ExpandedKeypair::from_secret_key_bytes(self.identity_key.to_secret_key_bytes())
-                .ok_or("Cannot extract expanded key")?;
+                .ok_or(ConanError::NotFound)?;
         let provider = ConanMlsProvider::new(&dbconn)?;
         self.server_ready.store(true, Ordering::SeqCst);
         let sndr = self.asst_sndr.clone();
@@ -453,6 +457,7 @@ impl Manager {
                 if let Ok(idx) = res {
                     let peers = peers.write().unwrap();
                     if let Some(target) = peers.get(&idx) {
+                        println!("sending initiate group command");
                         target
                             .command_sender
                             .send(SlaveCmd::Msg(Msg::InitiateGroup(group_id)))

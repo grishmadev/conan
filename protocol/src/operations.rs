@@ -1,7 +1,7 @@
 use crate::comm::enums::IPCRes;
 use crate::comm::error::ConanError;
 use crate::config::parse_config;
-use crate::entities::server::slave::Slave;
+use crate::entities::slave::Slave;
 use crate::msg::Internal;
 use crate::{constants::ARTI_PRIVATE_KEY, msg::Msg};
 use arti_client::{DataStream, TorClient};

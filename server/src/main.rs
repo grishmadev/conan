@@ -1,7 +1,7 @@
 use conanprotocol::{
     comm::enums::{IPCCmd, IPCRes},
     config::parse_config,
-    entities::server::{manager::Manager, master::Master},
+    entities::{manager::Manager, master::Master},
     mls::ConanGroup,
     msg::{Msg, SlaveCmd},
     operations::signing_key,
@@ -59,15 +59,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         continue;
                     }
                     let peers = Arc::clone(&manager.peers);
-                    let mut peers = peers.write().unwrap();
-                    let Some(target) = peers.get_mut(&idx) else {
-                        println!("Cannot find target peer.");
-                        continue;
-                    };
-                    let chat = Chat::chat_to_send(&text, idx);
-                    manager.dbconn.insert_chat(chat)?;
-                    let msg = Msg::Text(text);
-                    target.command_sender.send(SlaveCmd::Msg(msg)).unwrap();
+                    if let Ok(mut peers) = peers.write() {
+                        let Some(target) = peers.get_mut(&idx) else {
+                            println!("Cannot find target peer.");
+                            continue;
+                        };
+                        let chat = Chat::chat_to_send(&text, idx);
+                        manager.dbconn.insert_chat(chat)?;
+                        let msg = Msg::Text(text);
+                        target.command_sender.send(SlaveCmd::Msg(msg)).unwrap();
+                    }
                 }
                 IPCCmd::Disconnect(idx) => {
                     if idx == 1 {

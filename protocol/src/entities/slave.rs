@@ -1,5 +1,5 @@
 use crate::{
-    comm::enums::IPCRes,
+    comm::{enums::IPCRes, error::ConanError},
     msg::{Internal, Msg},
     operations::{listener_actor, recv},
 };
@@ -111,7 +111,9 @@ impl Slave {
                         }
                     }
                     if let Some(cmd) = cmd {
-                        send(&mut writer, cmd, &ratchet).await.unwrap();
+                        if let Err(e) = send(&mut writer, cmd, &ratchet).await {
+                            println!("{:?}", ConanError::Other(e.to_string()));
+                        }
                     }
                 }
             }

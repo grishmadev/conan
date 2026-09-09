@@ -13,7 +13,7 @@ Conan strives to achieve one goal - provide **COMPLETE** privacy and anonymity o
 Here's how:
 
 - It talks through the Tor Network. So you get near zero traceability.
-- It's integrated with a custom Application level Cryptography that is based on `ECDHE-Ed25519 Authenticated Key Exchange` for initial Handshake followed by `Double Ratchet Algorithm` for rest of the conversation making it immune to Post-Quantum Compute. This ensures:
+- It's integrated with a custom Application level Cryptography that is based on `ECDHE-Ed25519 Authenticated Key Exchange` for initial Handshake followed by `Double Ratchet Algorithm` for rest of the conversation. This ensures:
   - `Perfect Forward Secrecy`: In any case if your private key leaks, The Attacker cannot decrypt past messages.
   - `Break-in Recovery` - If Attacker manages to decrypt a message from a peer, the next transaction cannot be decrypted once the other party replies.
 

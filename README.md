@@ -8,11 +8,11 @@ Conan in short is a Tor-based fully Decentralized Terminal Chat app in Rust taki
 
 ## Why should I use Conan?
 
-Conan strives to achieve one goal - provide **COMPLETE** privacy and anonymity over communication.
+Conan strives to achieve one goal - provide **MAXIMUM** privacy and anonymity over communication.
 
 Here's how:
 
-- It talks through the Tor Network. So you get near zero traceability.
+- It talks through the Tor Network. Making chats very hard to trace back to you.
 - It's integrated with a custom Application level Cryptography that is based on `ECDHE-Ed25519 Authenticated Key Exchange` for initial Handshake followed by `Double Ratchet Algorithm` for rest of the conversation. This ensures:
   - `Perfect Forward Secrecy`: In any case if your private key leaks, The Attacker cannot decrypt past messages.
   - `Break-in Recovery` - If Attacker manages to decrypt a message from a peer, the next transaction cannot be decrypted once the other party replies.
@@ -112,18 +112,32 @@ conan -s <socket path> \
 
 ## Keybindings
 
-| Key                   | Action                                                                      |
-| --------------------- | --------------------------------------------------------------------------- |
-| `Tab`                 | Switches between Contact and Chats                                          |
-| `j`/`k`               | Navigate across contact list                                                |
-| `Up`/`Down`           | Navigate contacts (Contact tab) / scroll chat (Chat tab)                    |
-| `a`                   | Add new Peer                                                                |
-| `r`                   | Rename Peer                                                                 |
-| `d`                   | Delete Contact                                                              |
-| `q`                   | Quit Conan (With confirmation)                                              |
-| `Enter`               | Connects Contact, Send Messages, Affirm Input and Confirmation Screens etc. |
-| `Esc`                 | Return to contact list from chat                                            |
-| `Ctrl+C`              | Force quit from any screen                                                  |
+| Key           | Action                                                   |
+| ------------- | -------------------------------------------------------- |
+| `Tab`         | Switches between Contact and Chats                       |
+| `j`/`k`       | Navigate across contact list                             |
+| `Up`/`Down`   | Navigate contacts (Contact tab) / scroll chat (Chat tab) |
+| `a`           | Add new Peer                                             |
+| `r`           | Rename Peer                                              |
+| `d`           | Delete Contact                                           |
+| `D`/`Shift+d` | Disconnect from Peer                                     |
+| `Ctrl+p`      | Show Command Palette (Beta)                              |
+| `q`           | Quit Conan (With confirmation)                           |
+| `Enter`       | Connects Contact, Send Messages,                         |
+|               | Affirm Input and Confirmation Screens etc.               |
+| `Esc`         | Return to contact list from chat, Cancel Loading State   |
+| `Ctrl+C`      | Force quit from any screen                               |
+
+`Note: Whatever written below are beta features. If you discover any bugs, please create an issue or even better contribute to this project!`
+
+## Valid Commands in Command Palette
+
+| Command                   | Action                    |
+| ------------------------- | ------------------------- |
+| `newgroup`                | Creates a new group       |
+| `addtogroup <group name>` | Add a member to the group |
+
+Note: you should be connected to the group & peer should already be selected when executing `addtogroup` command.
 
 ## License
 

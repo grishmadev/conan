@@ -1,8 +1,8 @@
 //! Identity management utilities for conan.
 
-use super::aead::{hkdf_derive, KeyMaterial};
+use super::aead::{KeyMaterial, hkdf_derive};
 use ed25519_dalek::{
-    ed25519::signature::rand_core::OsRng, Signature, Signer, SigningKey, Verifier, VerifyingKey,
+    Signature, Signer, SigningKey, Verifier, VerifyingKey, ed25519::signature::rand_core::OsRng,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

@@ -1,13 +1,13 @@
 use crate::{
     comm::{
-        enums::{IPCRes, from_bytes, to_bytes},
+        enums::{IPCCmd, IPCRes, from_bytes, to_bytes},
         error::ConanError,
         notification::ConanNotif,
     },
     entities::slave::Slave,
     extras::mls_provider::ConanMlsProvider,
     mls::{ConanGroup, ConanGroupError},
-    msg::{Msg, SlaveCmd},
+    msg::{Internal, Msg, SlaveCmd},
 };
 use database::{
     FromConnection,
@@ -51,7 +51,7 @@ where
     identity_key: ExpandedKeypair,
     provider: ConanMlsProvider,
     signer: SignatureKeyPair,
-    asst_sndr: std::sync::mpsc::Sender<Msg>,
+    asst_sndr: std::sync::mpsc::Sender<Internal>,
 }
 impl CommandHandler {
     pub fn new(
@@ -62,7 +62,7 @@ impl CommandHandler {
         msg_sen: broadcast::Sender<IPCRes>,
         expanded_key: ExpandedKeypair,
         provider: ConanMlsProvider,
-        sndr: std::sync::mpsc::Sender<Msg>,
+        sndr: std::sync::mpsc::Sender<Internal>,
     ) -> Self {
         let openmls_store = SqliteStorageProvider::from_db(&dbconn).unwrap();
         let (signer, _, _) = MlsGroup::signer_from_expanded_key(&expanded_key);
@@ -157,7 +157,8 @@ impl CommandHandler {
             target_group
         } else {
             println!("Group not in memory, extracting from Database.");
-            self.asst_sndr.send(Msg::InitiateGroup(group_id.clone()))?;
+            self.asst_sndr
+                .send(Internal::IPCCmd(IPCCmd::InitiateGroup(group_id.clone())))?;
             let grp = MlsGroup::load(&self.openmls_store, &GroupId::from_slice(group_id))?
                 .ok_or(ConanGroupError::NotFound)?;
             let dbgrp = self.dbconn.get_group_by_group_id(group_id)?;
@@ -182,6 +183,19 @@ impl CommandHandler {
         };
         peer.command_sender
             .send(SlaveCmd::Msg(Msg::Welcome(welcome)))?;
+        let members = target_group.get_members()?;
+        for m in &members {
+            let dbpeer = self
+                .dbconn
+                .get_peer_from_addr(m)?
+                .ok_or(ConanGroupError::NotFound)?;
+            if let Some(peer) = peers.get(&dbpeer.id) {
+                peer.command_sender.send(SlaveCmd::Msg(Msg::GroupMessage(
+                    target_group.group_id().to_vec(),
+                    commit.tls_serialize_detached()?,
+                )))?;
+            }
+        }
         Ok(())
     }
 
@@ -193,8 +207,7 @@ impl CommandHandler {
         println!("group welcome");
         let mut peers = self.peers.write().unwrap();
         let Some(peer) = peers.get_mut(&peer_idx) else {
-            println!("No peer found at given index");
-            return Err("No peer found at given index".into());
+            return Err(ConanError::NotFound.into());
         };
         let mls_grp = MlsGroup::join_group(&self.provider, welcome)?;
         mls_grp.members().for_each(|m| {
@@ -204,19 +217,14 @@ impl CommandHandler {
         });
         let grp_id = mls_grp.group_id().to_vec();
 
-        let grp_name = generate_name(3..8);
-        let dbgroup = DBGroup::new(grp_id.clone(), grp_name);
+        let dbgroup = DBGroup::new(grp_id.clone(), generate_name(3..8));
 
         peer.command_sender
             .send(SlaveCmd::Msg(Msg::GroupVerified(grp_id)))?;
 
-        let Ok(mut grps) = self.groups.write() else {
-            return Err("Cannot write to groups.".into());
-        };
         let db_grp = self.dbconn.insert_group(dbgroup)?;
-
-        // we insert group to database and memory
-        grps.insert(db_grp.id, mls_grp);
+        self.asst_sndr
+            .send(Internal::IPCCmd(IPCCmd::GroupConnect(db_grp.id)))?;
         Ok(())
     }
 
@@ -247,7 +255,7 @@ impl CommandHandler {
         // Inserting member in our database
         let peer = self
             .dbconn
-            .get_peer_from_id(u16::from(peer_idx))?
+            .get_peer_from_id(peer_idx)?
             .ok_or("Unknown Peer dropping connection")?;
         self.dbconn.insert_member(db_group.id, peer, true)?;
 
@@ -335,7 +343,8 @@ impl CommandHandler {
     }
 
     pub fn handle_initiate_group(&self, group_id: Vec<u8>) -> Result<(), Box<dyn Error>> {
-        self.asst_sndr.send(Msg::InitiateGroup(group_id))?;
+        self.asst_sndr
+            .send(Internal::IPCCmd(IPCCmd::InitiateGroup(group_id)))?;
         Ok(())
     }
 

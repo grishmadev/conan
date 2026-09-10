@@ -52,10 +52,10 @@ pub struct Manager {
     pub response_sender: broadcast::Sender<(u16, Internal)>,
     pub stream: Option<BoxStream<'static, RendRequest>>,
     pub service: Arc<RunningOnionService>,
+    /// Database Connection
     pub dbconn: Connection,
     /// States whether Server Ready or not
     pub server_ready: AtomicBool,
-
     /// Channel for sending message to Master
     pub msg_sender: broadcast::Sender<IPCRes>,
     /// Used for receiving messages from Slaves and transferring them to Master
@@ -65,15 +65,19 @@ pub struct Manager {
     /// `HashMap` for tracking active Groups
     pub groups: Arc<RwLock<HashMap<u16, MlsGroup>>>,
     /// `HashMap` for tracking temporary Groups
-    /// here `u8` refers to peers (not group) associated with the given group
+    /// here `u16` refers to peers (not group) associated with the given group
     pub invitation_memory: Arc<RwLock<HashMap<u16, Vec<u8>>>>,
     /// Paths chosen during startup
     pub config: ConanConfig,
+    /// Identity Key
     pub identity_key: ExpandedKeypair,
+    /// `OpenMls` Provider
     pub provider: ConanMlsProvider,
-
-    pub asst_sndr: std::sync::mpsc::Sender<Msg>,
-    pub asst_recv: Option<std::sync::mpsc::Receiver<Msg>>,
+    /// Sender part of the channel to communicate with manager assistant
+    pub asst_sndr: std::sync::mpsc::Sender<Internal>,
+    /// Receiver part of the channel to communicate with manager assistant
+    pub asst_recv: Option<std::sync::mpsc::Receiver<Internal>>,
+    /// Sender part of the channel to communicate with main loop
     pub worker_sender: std::sync::mpsc::Sender<IPCCmd>,
 }
 
@@ -165,8 +169,8 @@ impl Manager {
         tokio::spawn(async move {
             while let Ok(msg) = recv.recv() {
                 match msg {
-                    Msg::InitiateGroup(grp_id) => {
-                        _ = ressen.send(IPCCmd::InitiateGroup(grp_id));
+                    Internal::IPCCmd(cmd) => {
+                        _ = ressen.send(cmd);
                     }
                     _ => {}
                 }
@@ -415,8 +419,8 @@ impl Manager {
                 self.dbconn.insert_peer(new_peer)?
             };
             let peers = self.peers.read().unwrap();
-            // adding to created list if not already connected
-            if !peers.contains_key(&peer.id) {
+            // adding to created list if not already connected and avoiding self connect
+            if !(peers.contains_key(&peer.id) || peer.id != 1) {
                 members_to_connect.push(peer.clone());
             }
         }
@@ -466,11 +470,12 @@ impl Manager {
                     println!("attempted to join.");
                 }
             }
-
-            _ = msg_sender.send(IPCRes::GroupConnected(
+            if let Err(e) = msg_sender.send(IPCRes::GroupConnected(
                 format!("Connected to {}", dbgrp.name).to_string(),
                 dbgrp.id,
-            ));
+            )) {
+                eprintln!("Couldn't Send Signal. {e:?}");
+            }
         });
 
         Ok(())

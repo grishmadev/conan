@@ -5,9 +5,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use database::entities::{chat::Chat, group::DBGroup, peer::Peer};
 
-pub struct Chats {}
-
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum IPCCmd {
     /// Command to start server

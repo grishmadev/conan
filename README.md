@@ -121,16 +121,16 @@ conan -s <socket path> \
 | `r`           | Rename Peer                                              |
 | `d`           | Delete Contact                                           |
 | `D`/`Shift+d` | Disconnect from Peer                                     |
-| `Ctrl+p`      | Show Command Palette (Beta)                              |
+| `Ctrl+p`      | Show Command Palette\*                                   |
 | `q`           | Quit Conan (With confirmation)                           |
 | `Enter`       | Connects Contact, Send Messages,                         |
 |               | Affirm Input and Confirmation Screens etc.               |
 | `Esc`         | Return to contact list from chat, Cancel Loading State   |
 | `Ctrl+C`      | Force quit from any screen                               |
 
-`Note: Whatever written below are beta features. If you discover any bugs, please create an issue or even better contribute to this project!`
+`Note: Whatever written below or marked * are beta features and still in development. If you discover any bugs, please create an issue or even better contribute to this project!`
 
-## Valid Commands in Command Palette
+### Valid Commands in Command Palette
 
 | Command                   | Action                    |
 | ------------------------- | ------------------------- |

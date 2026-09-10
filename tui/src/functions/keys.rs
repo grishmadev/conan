@@ -14,6 +14,8 @@ pub trait Keys {
     fn manage_keys(&mut self) -> impl Future<Output = std::io::Result<()>>;
     fn handle_none_screen(&mut self, key: KeyEvent) -> impl Future<Output = std::io::Result<()>>;
     fn handle_input_screen(&mut self, key: KeyEvent) -> impl Future<Output = std::io::Result<()>>;
+    fn handle_loading_screen(&mut self, key: KeyEvent)
+    -> impl Future<Output = std::io::Result<()>>;
     fn handle_confirm_screen(&mut self, key: KeyEvent)
     -> impl Future<Output = std::io::Result<()>>;
     fn handle_command_palette(
@@ -42,7 +44,9 @@ impl Keys for App {
                 Screen::InputScreen { .. } => {
                     self.handle_input_screen(key).await?;
                 }
-                Screen::LoadingScreen { .. } => {}
+                Screen::LoadingScreen { .. } => {
+                    self.handle_loading_screen(key).await?;
+                }
                 Screen::ConfirmScreen { .. } => {
                     self.handle_confirm_screen(key).await?;
                 }
@@ -407,6 +411,23 @@ impl Keys for App {
         Ok(())
     }
 
+    async fn handle_loading_screen(&mut self, key: KeyEvent) -> std::io::Result<()> {
+        let Screen::LoadingScreen {
+            ref loading_text, ..
+        } = self.active_screen
+        else {
+            return Ok(());
+        };
+        match key.code {
+            KeyCode::Esc => {
+                self.notification = Some((loading_text.into(), Instant::now()));
+                self.active_screen = Screen::None;
+            }
+            _ => unimplemented!(),
+        }
+        Ok(())
+    }
+
     async fn handle_confirm_screen(&mut self, key: KeyEvent) -> std::io::Result<()> {
         let Screen::ConfirmScreen {
             ref mut yes_selected,
@@ -453,9 +474,12 @@ impl Keys for App {
                         }
                     }
                     ConfirmMode::DisconnectPeer => {
-                        if *yes_selected && let (true, Some(idx)) = self.current_contact() {
+                        if *yes_selected
+                            && let (true, Some(idx)) = self.current_contact()
+                            && let Some(peer) = self.contacts.get(idx)
+                        {
                             #[allow(clippy::cast_possible_truncation)]
-                            self.send(IPCCmd::Disconnect(idx as u16)).await?;
+                            self.send(IPCCmd::Disconnect(peer.id)).await?;
                         }
                     }
                 }

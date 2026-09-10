@@ -377,7 +377,7 @@ impl Manager {
                     Internal::Msg(msg) => match msg {
                         Msg::Text(text) => cmdhandler.handle_msg_text(peer_idx, text),
                         Msg::Verified => cmdhandler.handle_msg_verified(),
-                        Msg::JoinGroup => cmdhandler.handle_msg_convert(peer_idx),
+                        Msg::JoinGroup => cmdhandler.handle_msg_join(peer_idx),
                         Msg::KeyPackage(package) => {
                             cmdhandler.handle_msg_keypackage(peer_idx, &package)
                         }
@@ -408,6 +408,7 @@ impl Manager {
     pub fn connect_to_group(&mut self, group: &mut MlsGroup) -> Result<(), Box<dyn Error>> {
         // getting all the members embedded in the group
         let members = group.get_members()?;
+        println!("embedded members: {members:?}");
         // creating a list to remember all the members not connected (yet).
         let mut members_to_connect = vec![];
         for m in members {
@@ -420,14 +421,18 @@ impl Manager {
             };
             let peers = self.peers.read().unwrap();
             // adding to created list if not already connected and avoiding self connect
-            if !(peers.contains_key(&peer.id) || peer.id != 1) {
+            if !peers.contains_key(&peer.id) {
                 members_to_connect.push(peer.clone());
             }
         }
 
         let mut set = tokio::task::JoinSet::new();
 
+        println!("filtered members: {members_to_connect:?}");
         for peer in members_to_connect {
+            if peer.id == 1 {
+                continue;
+            }
             let tor_client = Arc::clone(&self.tor_client);
             let peers = Arc::clone(&self.peers);
             let service = Arc::clone(&self.service);

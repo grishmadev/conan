@@ -106,40 +106,29 @@ impl CommandHandler {
         Ok(())
     }
 
-    pub fn handle_msg_convert(&self, peer_idx: u16) -> Result<(), Box<dyn Error>> {
+    pub fn handle_msg_join(&self, peer_idx: u16) -> Result<(), Box<dyn Error>> {
         println!("got convert to group");
         let (signer, _, _) = MlsGroup::signer_from_expanded_key(&self.identity_key);
         let peers = Arc::clone(&self.peers);
         let provider = ConanMlsProvider::new(&self.dbconn)?;
         let self_link = self.dbconn.get_peer_from_id(1)?.unwrap().address;
-        tokio::spawn(async move {
-            let key_package = MlsGroup::key_package_bundle(&signer, &provider, &self_link).unwrap();
-            let Ok(mut peers) = peers.write() else {
-                println!("Cannot write to peers.");
-                return;
-            };
-            let Some(peer) = peers.get_mut(&peer_idx) else {
-                println!("Cannot get selected peer.");
-                return;
-            };
-            let key_package_ser = to_bytes(key_package.key_package());
-            peer.command_sender
-                .send(SlaveCmd::Msg(Msg::KeyPackage(key_package_ser)))
-                .unwrap();
-            println!("peer idx: {peer_idx}");
-        });
+        let key_package = MlsGroup::key_package_bundle(&signer, &provider, &self_link)?;
+        let Ok(mut peers) = peers.write() else {
+            return Err(ConanError::ParseError.into());
+        };
+        let Some(peer) = peers.get_mut(&peer_idx) else {
+            return Err(ConanError::NotFound.into());
+        };
+        let key_package_ser = to_bytes(key_package.key_package());
+        peer.command_sender
+            .send(SlaveCmd::Msg(Msg::KeyPackage(key_package_ser)))?;
+        println!("peer idx: {peer_idx}");
         Ok(())
     }
 
     pub fn handle_msg_keypackage(&self, peer_idx: u16, data: &[u8]) -> Result<(), Box<dyn Error>> {
         println!("got keypackage");
         let key_package = from_bytes::<KeyPackage>(data)?;
-        {
-            let groups = self.groups.read().unwrap();
-            for (idx, _) in groups.iter() {
-                println!("group_idx: {idx}");
-            }
-        }
         let invitation = self.invitation_memory.write().unwrap();
 
         for (idx, _) in invitation.iter() {
@@ -150,7 +139,7 @@ impl CommandHandler {
             return Err(ConanGroupError::NotFound.into());
         };
         let mut groups = self.groups.write().unwrap();
-        let target_group = if let Some((_, target_group)) = groups
+        let (grp_idx, target_group) = if let Some(target_group) = groups
             .iter_mut()
             .find(|f| f.1.group_id().as_slice() == group_id)
         {
@@ -163,7 +152,7 @@ impl CommandHandler {
                 .ok_or(ConanGroupError::NotFound)?;
             let dbgrp = self.dbconn.get_group_by_group_id(group_id)?;
             groups.insert(dbgrp.id, grp);
-            let Some((_, target_group)) = groups
+            let Some(target_group) = groups
                 .iter_mut()
                 .find(|f| f.1.group_id().as_slice() == group_id)
             else {
@@ -176,14 +165,16 @@ impl CommandHandler {
             target_group.add_members(&self.provider, &self.signer, keypackages)?;
         let mut peers = self.peers.write().unwrap();
         let Some(peer) = peers.get_mut(&peer_idx) else {
-            return Err("No peer found at given Index".into());
+            return Err(ConanError::NotFound.into());
         };
         let MlsMessageBodyOut::Welcome(welcome) = welcome.body().clone() else {
             return Err("No Welcome found. Ignoring.".into());
         };
         peer.command_sender
             .send(SlaveCmd::Msg(Msg::Welcome(welcome)))?;
+        target_group.merge_pending_commit(&self.provider)?;
         let members = target_group.get_members()?;
+        println!("members in keypackage: {members:?}");
         for m in &members {
             let dbpeer = self
                 .dbconn
@@ -237,17 +228,18 @@ impl CommandHandler {
         {
             // removing from invitation memory, because the exchange is complete
             let mut invitation = self.invitation_memory.write().unwrap();
-            let inv = invitation.remove(&peer_idx);
-            println!("removed {peer_idx}: {inv:?}");
+            invitation.remove(&peer_idx);
         }
         let mut groups = self.groups.write().unwrap();
         let Some((_grp_idx, grp)) = groups
             .iter_mut()
             .find(|g| g.1.group_id().as_slice() == group_id)
         else {
-            return Err("Cannot find targetted group".into());
+            return Err(ConanError::NotFound.into());
         };
-        grp.merge_pending_commit(&self.provider)?;
+        if let Err(e) = grp.merge_pending_commit(&self.provider) {
+            eprintln!("Error while merging commit: {e:?}");
+        }
         // the group is already saved in initializers database
         // so it can be retrieved
         let db_group = self.dbconn.get_group_by_group_id(group_id)?;
@@ -271,9 +263,7 @@ impl CommandHandler {
             let Some(peer) = peers.get_mut(&peer.id) else {
                 continue;
             };
-            let message = grp
-                .create_message(&self.provider, &self.signer, text)
-                .unwrap();
+            let message = grp.create_message(&self.provider, &self.signer, text)?;
             let message_ser = message.tls_serialize_detached()?;
             peer.command_sender.send(SlaveCmd::Msg(Msg::GroupMessage(
                 grp.group_id().to_vec(),

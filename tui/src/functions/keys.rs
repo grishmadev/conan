@@ -418,12 +418,9 @@ impl Keys for App {
         else {
             return Ok(());
         };
-        match key.code {
-            KeyCode::Esc => {
-                self.notification = Some((loading_text.into(), Instant::now()));
-                self.active_screen = Screen::None;
-            }
-            _ => unimplemented!(),
+        if key.code == KeyCode::Esc {
+            self.notification = Some((loading_text.into(), Instant::now()));
+            self.active_screen = Screen::None;
         }
         Ok(())
     }

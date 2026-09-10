@@ -408,7 +408,6 @@ impl Manager {
     pub fn connect_to_group(&mut self, group: &mut MlsGroup) -> Result<(), Box<dyn Error>> {
         // getting all the members embedded in the group
         let members = group.get_members()?;
-        println!("embedded members: {members:?}");
         // creating a list to remember all the members not connected (yet).
         let mut members_to_connect = vec![];
         for m in members {
@@ -428,7 +427,6 @@ impl Manager {
 
         let mut set = tokio::task::JoinSet::new();
 
-        println!("filtered members: {members_to_connect:?}");
         for peer in members_to_connect {
             if peer.id == 1 {
                 continue;

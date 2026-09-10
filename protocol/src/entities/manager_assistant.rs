@@ -139,7 +139,7 @@ impl CommandHandler {
             return Err(ConanGroupError::NotFound.into());
         };
         let mut groups = self.groups.write().unwrap();
-        let (grp_idx, target_group) = if let Some(target_group) = groups
+        let (_grp_idx, target_group) = if let Some(target_group) = groups
             .iter_mut()
             .find(|f| f.1.group_id().as_slice() == group_id)
         {

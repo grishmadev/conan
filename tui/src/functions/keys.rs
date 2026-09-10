@@ -149,74 +149,11 @@ impl Keys for App {
                 }
             }
             KeyCode::Char('j') if self.tab == Tab::Contact => {
-                let c_len = self.contacts.len();
-                let g_len = self.groups.len();
-
-                if c_len == 0 && g_len == 0 {
-                    return Ok(());
-                }
-
-                let next_idx = match self.contact_idx.selected() {
-                    Some(idx) => {
-                        if g_len == 0 {
-                            if idx + 1 < c_len { idx + 1 } else { 0 }
-                        } else if c_len == 0 {
-                            if idx < g_len { idx + 1 } else { 1 }
-                        } else {
-                            if idx < c_len - 1 {
-                                // Move down contacts
-                                idx + 1
-                            } else if idx == c_len - 1 {
-                                // Skip Group header at `c_len`
-                                c_len + 1
-                            } else if idx < c_len + g_len {
-                                // Move down groups
-                                idx + 1
-                            } else {
-                                // Wrap back to top contact
-                                0
-                            }
-                        }
-                    }
-                    None => 0,
-                };
-                self.contact_idx.select(Some(next_idx));
+                self.next_idx();
             }
 
             KeyCode::Char('k') if self.tab == Tab::Contact => {
-                let c_len = self.contacts.len();
-                let g_len = self.groups.len();
-
-                if c_len == 0 && g_len == 0 {
-                    return Ok(());
-                }
-
-                let prev_idx = match self.contact_idx.selected() {
-                    Some(idx) => {
-                        if g_len == 0 {
-                            if idx > 0 {
-                                idx - 1
-                            } else {
-                                c_len.saturating_sub(1)
-                            }
-                        } else if c_len == 0 {
-                            if idx > 1 { idx - 1 } else { g_len }
-                        } else {
-                            if idx == 0 {
-                                // Wrap to bottom group
-                                c_len + g_len
-                            } else if idx == c_len + 1 {
-                                // Skip Group header moving up
-                                c_len - 1
-                            } else {
-                                // Move up normally
-                                idx - 1
-                            }
-                        }
-                    }
-                    None => 0,
-                };
-                self.contact_idx.select(Some(prev_idx));
+                self.prev_idx();
             }
             KeyCode::Char('q') => {
                 self.active_screen = Screen::ConfirmScreen {
@@ -345,13 +282,7 @@ impl Keys for App {
             }
             KeyCode::Down => match self.tab {
                 Tab::Contact => {
-                    if let Some(idx) = self.contact_idx.selected()
-                        && idx == self.contacts.len() - 1
-                    {
-                        self.contact_idx.select_first();
-                    } else {
-                        self.contact_idx.select_next();
-                    }
+                    self.next_idx();
                 }
                 Tab::Chat => {
                     self.chat_scroll = self.chat_scroll.saturating_sub(5);
@@ -360,15 +291,7 @@ impl Keys for App {
             },
             KeyCode::Up => match self.tab {
                 Tab::Contact => {
-                    if let Some(idx) = self.contact_idx.selected()
-                        && idx == 0
-                    {
-                        if let Some(idx) = self.contact_idx.selected_mut() {
-                            *idx = self.contacts.len() - 1;
-                        }
-                    } else {
-                        self.contact_idx.select_previous();
-                    }
+                    self.prev_idx();
                 }
                 Tab::Chat => {
                     self.chat_scroll = self.chat_scroll.saturating_add(5);

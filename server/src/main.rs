@@ -76,6 +76,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
                     let mut peers = manager.peers.write().unwrap();
                     let Some(target) = peers.get_mut(&idx) else {
+                        eprintln!("Cannot find target peer to disconnect.");
                         continue;
                     };
                     target.command_sender.send(SlaveCmd::Shutdown)?;

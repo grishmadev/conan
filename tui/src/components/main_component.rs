@@ -123,7 +123,9 @@ impl MainComponents for App {
             })
             .collect::<Vec<_>>();
 
-        list_items.push(ListItem::new("Groups"));
+        if !self.groups.is_empty() {
+            list_items.push(ListItem::new("Groups"));
+        }
         list_items.extend(group_items);
 
         let contact_list = List::new(list_items)

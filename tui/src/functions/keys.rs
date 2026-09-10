@@ -148,30 +148,75 @@ impl Keys for App {
                     mode: InputMode::NewPeer,
                 }
             }
-            KeyCode::Char('j') => {
-                if self.tab == Tab::Contact
-                    && let Some(idx) = self.contact_idx.selected()
-                {
-                    if idx < self.contacts.len() - 1 {
-                        self.contact_idx.select_next();
-                    } else if !self.groups.is_empty() {
-                        self.contact_idx.select(Some(idx + 1));
-                    } else {
-                        self.contact_idx.select_first();
+            KeyCode::Char('j') if self.tab == Tab::Contact => {
+                let c_len = self.contacts.len();
+                let g_len = self.groups.len();
+
+                if c_len == 0 && g_len == 0 {
+                    return Ok(());
+                }
+
+                let next_idx = match self.contact_idx.selected() {
+                    Some(idx) => {
+                        if g_len == 0 {
+                            if idx + 1 < c_len { idx + 1 } else { 0 }
+                        } else if c_len == 0 {
+                            if idx < g_len { idx + 1 } else { 1 }
+                        } else {
+                            if idx < c_len - 1 {
+                                // Move down contacts
+                                idx + 1
+                            } else if idx == c_len - 1 {
+                                // Skip Group header at `c_len`
+                                c_len + 1
+                            } else if idx < c_len + g_len {
+                                // Move down groups
+                                idx + 1
+                            } else {
+                                // Wrap back to top contact
+                                0
+                            }
+                        }
                     }
-                } else {
-                    self.contact_idx.select_first();
-                }
+                    None => 0,
+                };
+                self.contact_idx.select(Some(next_idx));
             }
-            KeyCode::Char('k') => {
-                if self.tab == Tab::Contact
-                    && let Some(idx) = self.contact_idx.selected_mut()
-                    && *idx == 0
-                {
-                    *idx = self.contacts.len() + self.groups.len() - 1;
-                } else {
-                    self.contact_idx.select_previous();
+
+            KeyCode::Char('k') if self.tab == Tab::Contact => {
+                let c_len = self.contacts.len();
+                let g_len = self.groups.len();
+
+                if c_len == 0 && g_len == 0 {
+                    return Ok(());
                 }
+
+                let prev_idx = match self.contact_idx.selected() {
+                    Some(idx) => {
+                        if g_len == 0 {
+                            if idx > 0 {
+                                idx - 1
+                            } else {
+                                c_len.saturating_sub(1)
+                            }
+                        } else if c_len == 0 {
+                            if idx > 1 { idx - 1 } else { g_len }
+                        } else {
+                            if idx == 0 {
+                                // Wrap to bottom group
+                                c_len + g_len
+                            } else if idx == c_len + 1 {
+                                // Skip Group header moving up
+                                c_len - 1
+                            } else {
+                                // Move up normally
+                                idx - 1
+                            }
+                        }
+                    }
+                    None => 0,
+                };
+                self.contact_idx.select(Some(prev_idx));
             }
             KeyCode::Char('q') => {
                 self.active_screen = Screen::ConfirmScreen {
@@ -199,16 +244,6 @@ impl Keys for App {
                 let (is_peer, Some(idx)) = self.current_contact() else {
                     return Ok(());
                 };
-                // let target = if let Some(idx) = self.contact_idx.selected()
-                //     && let Some(target) = self.contacts.get(idx)
-                // {
-                //     Some((target.id, target.address.clone()))
-                // } else {
-                //     None
-                // };
-                // let Some((id, addr)) = target else {
-                //     return Ok(());
-                // };
                 match self.tab {
                     Tab::Contact => {
                         if is_peer {
@@ -243,7 +278,7 @@ impl Keys for App {
                                 return Ok(());
                             };
                             self.active_screen = Screen::LoadingScreen {
-                                loading_text: format!("Connecting to {}..", grp.name).into(),
+                                loading_text: format!("Connecting to {}..", grp.name),
                                 mode: LoadingMode::GroupConnect,
                             };
                             self.send(IPCCmd::GroupConnect(grp.id)).await?;

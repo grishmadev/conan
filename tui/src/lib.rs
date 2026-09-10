@@ -12,9 +12,9 @@ use bincode::config;
 use conanprotocol::{
     comm::enums::{IPCCmd, IPCRes, encode},
     config::ConanConfig,
-    entities::database::{chat::Chat, peer::Peer},
     msg::Mode,
 };
+use database::entities::{chat::Chat, group::DBGroup, peer::Peer};
 use ratatui::{
     Frame, Terminal,
     layout::{Constraint, Direction, HorizontalAlignment, Layout},
@@ -30,8 +30,8 @@ use tokio::{
 
 use crate::{
     components::{
-        confirmation_screen::ConfirmScreen, loading_screen::LoadingScreen,
-        main_component::MainComponents, new_peer::InputScreen, notification::Notification,
+        command_pallete::CommandPallete, confirmation_screen::ConfirmScreen, input::InputScreen,
+        loading_screen::LoadingScreen, main_component::MainComponents, notification::Notification,
         welcome::WelcomeScreen,
     },
     functions::{ConfirmMode, InputMode, LoadingMode, keys::Keys},
@@ -39,19 +39,33 @@ use crate::{
 };
 
 pub struct App {
+    /// Current Tab
     pub tab: Tab,
+    /// Current mode [`Mode`]
     pub mode: Mode,
+    /// Notification Feature for alerts and errors
     pub notification: Option<(String, Instant)>,
+    /// Stream for Daemon to Client
     pub stream: UnixStream,
+    /// Current active screen
     pub active_screen: Screen,
+    /// Whether app running
     pub running: bool,
-    pub time: Instant,
+    /// List of all the contacts
     pub contacts: Vec<Peer>,
+    /// List of all the groups
+    pub groups: Vec<DBGroup>,
+    /// Current contact
     pub contact_idx: ListState,
+    /// All the Chats for the current contact/group
     pub chats: Vec<Chat>,
+    /// Chat Buffer for writing messages
     pub chat_buf: String,
+    /// Chat Scroll Option to scroll texts
     pub chat_scroll: usize,
+    /// Sender for [`IPCCmd`]
     pub sender: broadcast::Sender<IPCCmd>,
+    /// Receiver for [`IPCCmd`]
     pub receiver: broadcast::Receiver<IPCCmd>,
 }
 
@@ -89,7 +103,6 @@ impl App {
                 }
             }
         };
-        let time = Instant::now();
         let (sender, receiver) = tokio::sync::broadcast::channel::<IPCCmd>(100);
         Ok(Self {
             tab: Tab::None,
@@ -97,13 +110,13 @@ impl App {
             notification: None,
             stream,
             contacts: vec![],
+            groups: vec![],
             contact_idx: ListState::default(),
             chats: vec![],
             chat_buf: String::new(),
             chat_scroll: 0,
             active_screen: Screen::None,
             running: true,
-            time,
             sender,
             receiver,
         })
@@ -126,8 +139,10 @@ impl App {
         let sender = self.sender.clone();
         tokio::spawn(async move {
             loop {
-                _ = sender.send(IPCCmd::Tick);
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                _ = sender.send(IPCCmd::PeerList);
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                _ = sender.send(IPCCmd::GroupList);
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         });
         let sender = self.sender.clone();
@@ -149,13 +164,12 @@ impl App {
             })?;
             if let Ok(s) = self.receiver.try_recv() {
                 match s {
-                    IPCCmd::Tick => {
-                        self.send(IPCCmd::PeerList).await?;
-                    }
                     IPCCmd::PingChat => {
                         self.update_chats().await?;
                     }
-                    _ => {}
+                    cmd => {
+                        self.send(cmd).await?;
+                    }
                 }
             }
             self.manage_keys().await?;
@@ -187,43 +201,92 @@ impl App {
                         self.send(IPCCmd::StartServer).await?;
                     }
                 }
+
                 IPCRes::Connected(_, _) => {
                     if let Screen::LoadingScreen { ref mode, .. } = self.active_screen
-                        && matches!(mode, LoadingMode::NewPeer)
+                        && matches!(mode, LoadingMode::PeerConnect)
                     {
                         self.active_screen = Screen::None;
                     }
                     self.notification = Some(("Connected.".to_string(), Instant::now()));
                 }
+
                 IPCRes::Error(text) => {
                     self.notification = Some((text, Instant::now()));
                     if matches!(self.active_screen, Screen::LoadingScreen { .. }) {
                         self.active_screen = Screen::None;
                     }
                 }
+
                 IPCRes::Notification(text) => {
                     self.notification = Some((text.clone(), Instant::now()));
                 }
+
                 IPCRes::PeerList(peers) => {
                     self.contacts = peers;
                 }
-                IPCRes::Text(idx, text) => {
-                    let Some(cur_cont) = self.current_contact() else {
+
+                IPCRes::GroupConnected(msg, _) => {
+                    self.notification = Some((msg, Instant::now()));
+                    if matches!(
+                        self.active_screen,
+                        Screen::LoadingScreen {
+                            mode: LoadingMode::GroupConnect,
+                            ..
+                        }
+                    ) {
+                        self.active_screen = Screen::None;
+                    }
+                }
+
+                IPCRes::GroupList(list) => {
+                    self.groups = list;
+                }
+
+                IPCRes::Text(sent_idx, text) => {
+                    let (true, Some(idx)) = self.current_contact() else {
                         return Ok(());
                     };
-                    let idx = u32::from(idx);
+                    if idx != usize::from(sent_idx) {
+                        return Ok(());
+                    }
+                    let Some(cur_cont) = self.contacts.get(idx) else {
+                        return Ok(());
+                    };
+                    #[allow(clippy::cast_possible_truncation)]
+                    let idx = idx as u16;
                     if cur_cont.id.eq(&idx) {
                         let new_chat = Chat::chat_to_rec(&text, idx);
                         self.chats.push(new_chat);
                     }
                 }
+
                 IPCRes::ChatList { peer_id, chats } => {
-                    if let Some(target) = self.current_contact()
-                        && target.id == u32::from(peer_id)
-                    {
-                        self.chats = chats;
+                    let (true, Some(idx)) = self.current_contact() else {
+                        return Ok(());
+                    };
+                    let Some(cur_cont) = self.contacts.get(idx) else {
+                        return Ok(());
+                    };
+                    if cur_cont.id != peer_id {
+                        return Ok(());
                     }
+                    self.chats = chats;
                 }
+
+                IPCRes::GroupChatList { group_idx, chats } => {
+                    let (false, Some(idx)) = self.current_contact() else {
+                        return Ok(());
+                    };
+                    let Some(grp) = self.groups.get(idx) else {
+                        return Ok(());
+                    };
+                    if grp.id != group_idx {
+                        return Ok(());
+                    }
+                    self.chats = chats;
+                }
+
                 IPCRes::RenamedPeer(idx) => {
                     if let Some(target) = self.contacts.get(idx as usize) {
                         self.notification = Some((
@@ -237,6 +300,11 @@ impl App {
                         }
                     }
                 }
+
+                IPCRes::DeletedGroup(_) => {
+                    self.notification = Some(("Group deleted.".to_string(), Instant::now()));
+                }
+
                 IPCRes::DeletedPeer(_) => {
                     self.notification = Some(("Peer deleted.".to_string(), Instant::now()));
                     if let Screen::ConfirmScreen { ref mode, .. } = self.active_screen
@@ -325,6 +393,13 @@ impl App {
             } => {
                 self.render_confirmation(f, prompt, yes_selected);
             }
+            Screen::CommandPalette {
+                ref text,
+                ref cursor_pos,
+                ..
+            } => {
+                self.render_command_palette(f, text, cursor_pos);
+            }
         }
     }
 
@@ -353,24 +428,45 @@ impl App {
     }
 
     /// Fetches current contact in terminal
-    fn current_contact(&self) -> Option<&Peer> {
-        let cur_idx = self.contact_idx.selected()?;
-        self.contacts.get(cur_idx)
+    fn current_contact(&self) -> (bool, Option<usize>) {
+        let Some(idx) = self.contact_idx.selected() else {
+            return (false, None);
+        };
+        // Selected `Groups`
+        if idx == self.contacts.len() {
+            return (false, None);
+        }
+        let is_peer = idx < self.contacts.len();
+        let idx = if is_peer {
+            idx
+        } else {
+            idx - self.contacts.len() - 1
+        };
+        (is_peer, Some(idx))
     }
 
     /// Updates chats on screen by calling database via socket
     /// # Errors
     pub async fn update_chats(&mut self) -> Result<(), Box<dyn Error>> {
-        let abs_cur_idx = self.contact_idx.selected();
-        if let Some(cur_idx) = abs_cur_idx {
-            let peer = &self.contacts[cur_idx];
-            #[allow(clippy::cast_possible_truncation)]
-            self.send(IPCCmd::ChatList {
-                peer_id: peer.id as u8,
-                msg_amount: 50,
-            })
-            .await?;
+        let (is_peer, idx) = self.current_contact();
+        // Something is selected
+        if let Some(cur_idx) = idx {
+            if is_peer && let Some(peer) = self.contacts.get(cur_idx) {
+                #[allow(clippy::cast_possible_truncation)]
+                self.send(IPCCmd::ChatList {
+                    peer_id: peer.id,
+                    msg_amount: 50,
+                })
+                .await?;
+            } else if let Some(grp) = self.groups.get(cur_idx) {
+                self.send(IPCCmd::GroupChatList {
+                    group_idx: grp.id,
+                    msg_amount: 50,
+                })
+                .await?;
+            }
         } else {
+            // nothing is selected
             self.chats.clear();
         }
         Ok(())

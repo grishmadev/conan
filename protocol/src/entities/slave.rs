@@ -1,39 +1,61 @@
-use crate::crypto::ratchet::RatchetSession;
+use crate::{
+    comm::{enums::IPCRes, error::ConanError},
+    msg::{Internal, Msg},
+    operations::{listener_actor, recv},
+};
+use crate::{config::parse_config, msg::SlaveCmd, operations::send};
 use arti_client::DataStream;
-use rand::random_range;
-use rusqlite::Connection;
+use crypto::ratchet::RatchetSession;
+use database::{
+    entities::peer::{Peer, PeerData},
+    rusqlite::Connection,
+};
+use extras::generate_name;
 use std::{error::Error, sync::Arc};
 use tokio::{
-    io::{ReadHalf, WriteHalf},
+    io::{AsyncWriteExt, ReadHalf, WriteHalf},
     sync::{RwLock, broadcast},
 };
 use tor_hsservice::RunningOnionService;
 
-use crate::{
-    comm::enums::IPCRes,
-    config::ConanConfig,
-    entities::database::peer::{Peer, PeerData},
-    extras::generate_name,
-    msg::{Internal, Msg},
-    operations::{listener_actor, recv},
-};
-
 pub struct Slave {
-    pub id: u8,
-    pub reader: Option<ReadHalf<DataStream>>,
-    pub writer: WriteHalf<DataStream>,
-    pub response_sender: broadcast::Sender<(u8, Internal)>,
+    pub id: u16,
+    reader: Option<ReadHalf<DataStream>>,
+    pub writer: Option<WriteHalf<DataStream>>,
+    pub command_sender: broadcast::Sender<SlaveCmd>,
+    command_receiver: Option<broadcast::Receiver<SlaveCmd>>,
+    pub response_sender: broadcast::Sender<(u16, Internal)>,
     /// Double Ratchet session for encrypted communication.
     /// `None` before handshake completes, `Some` after.
     pub ratchet_session: Option<Arc<RwLock<RatchetSession>>>,
     pub msg_sender: broadcast::Sender<IPCRes>,
     pub service: Arc<RunningOnionService>,
-    pub config: ConanConfig,
 }
 
 impl Slave {
-    /// Spawns a tokio thread that reads encrypted messages and forwards to response channel.
-    ///
+    pub fn build(
+        id: u16,
+        reader: ReadHalf<DataStream>,
+        writer: WriteHalf<DataStream>,
+        service: Arc<RunningOnionService>,
+        msg_sender: broadcast::Sender<IPCRes>,
+        response_sender: broadcast::Sender<(u16, Internal)>,
+        ratchet_session: Option<Arc<RwLock<RatchetSession>>>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let cmd = tokio::sync::broadcast::channel::<SlaveCmd>(10);
+
+        Ok(Self {
+            id,
+            reader: Some(reader),
+            writer: Some(writer),
+            command_sender: cmd.0,
+            command_receiver: Some(cmd.1),
+            service,
+            msg_sender,
+            response_sender,
+            ratchet_session,
+        })
+    }
     /// # Errors
     /// # Panics
     pub fn spawn_communication(&mut self) -> Result<(), Box<dyn Error>> {
@@ -72,13 +94,37 @@ impl Slave {
                 }
             }
         });
+        let mut cmd_rec = self.command_receiver.take().unwrap();
+        let mut writer = self.writer.take().unwrap();
+        let ratchet = Arc::clone(self.ratchet_session.as_ref().unwrap());
+        tokio::spawn(async move {
+            let ratchet = Arc::clone(&ratchet);
+            loop {
+                if let Ok(data) = cmd_rec.recv().await {
+                    let mut cmd = None;
+                    match data {
+                        SlaveCmd::Msg(msg) => {
+                            cmd = Some(msg);
+                        }
+                        SlaveCmd::Shutdown => {
+                            writer.shutdown().await.unwrap();
+                        }
+                    }
+                    if let Some(cmd) = cmd {
+                        if let Err(e) = send(&mut writer, cmd, &ratchet).await {
+                            println!("{:?}", ConanError::Other(e.to_string()));
+                        }
+                    }
+                }
+            }
+        });
         Ok(())
     }
 
     /// Connects to Peer as listener (Allowing Connections)
     /// # Panics
     /// # Errors
-    pub async fn connect_as_listener(&mut self) -> Result<u8, Box<dyn Error>> {
+    pub async fn connect_as_listener(&mut self) -> Result<u16, Box<dyn Error>> {
         let Some(reader) = self.reader.as_mut() else {
             return Err("No reader found.".into());
         };
@@ -88,9 +134,8 @@ impl Slave {
             .ok_or("Could not get Onion Address")?;
         let mut remote_onion_key = None;
         let (session, _remote_hsid) = listener_actor(
-            self.config.arti_key_store.clone(),
             reader,
-            &mut self.writer,
+            self.writer.as_mut().unwrap(),
             &mut remote_onion_key,
             local_hsid,
         )
@@ -99,20 +144,19 @@ impl Slave {
         let Some(remote_hsid) = remote_onion_key else {
             return Err("No Remote HsId key assigned. Aborting.".into());
         };
-        let dbconn = Connection::open(&self.config.db_path)?;
+        let config = parse_config()?;
+        let dbconn = Connection::open(&config.db_path)?;
         let peer = if let Some(peer) = dbconn.get_peer_from_addr(&remote_hsid)? {
             peer
         } else {
-            let name = generate_name(random_range(4..10));
-            dbconn.insert_peer(Peer::build(&name, &remote_hsid))?
+            let name = generate_name(4..10);
+            dbconn.insert_peer(Peer::build(&name, &remote_hsid, true))?
         };
         let name = peer.name;
-        #[allow(clippy::cast_possible_truncation)]
-        let id = peer.id as u8;
-        self.id = id;
+        self.id = peer.id;
         self.msg_sender.send(IPCRes::Notification(format!(
             "{name} just connected to you."
         )))?;
-        Ok(id)
+        Ok(peer.id)
     }
 }

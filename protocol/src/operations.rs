@@ -1,16 +1,30 @@
-use crate::crypto::aead::{self, EncryptedMessage, MessageKey};
-use crate::crypto::ratchet::{RatchetMessage, RatchetSession};
+use crate::comm::enums::IPCRes;
+use crate::comm::error::ConanError;
+use crate::config::parse_config;
+use crate::entities::slave::Slave;
+use crate::msg::Internal;
 use crate::{constants::ARTI_PRIVATE_KEY, msg::Msg};
-use arti_client::DataStream;
+use arti_client::{DataStream, TorClient};
 use base64::Engine;
+use crypto::{
+    aead::{self, EncryptedMessage, MessageKey},
+    ratchet::{RatchetMessage, RatchetSession},
+};
+use database::entities::peer::{Peer, PeerData};
+use database::rusqlite::Connection;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey, ed25519::signature::rand_core::OsRng};
+use extras::generate_name;
 use futures::AsyncReadExt as FutureRead;
 use safelog::DisplayRedacted;
 use ssh_encoding::Decode;
+use std::collections::HashMap;
+use std::sync::RwLock;
 use std::{error::Error, fs::File, io::Read, str::FromStr, sync::Arc};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
-use tor_hsservice::HsId;
+use tokio::sync::broadcast;
+use tor_hsservice::{HsId, RunningOnionService};
 use tor_llcrypto::pk::ed25519::ExpandedKeypair;
+use tor_rtcompat::PreferredRuntime;
 use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
 
 /// Handshake-only encryption using the static shared secret.
@@ -44,8 +58,9 @@ fn handshake_decrypt(
 /// Used to retrieve signing key for self tor server
 /// # Errors
 /// # Panics
-pub async fn signing_key(arti_key_store: String) -> Result<ExpandedKeypair, Box<dyn Error>> {
-    let mut key_store_path = arti_key_store;
+pub async fn signing_key() -> Result<ExpandedKeypair, Box<dyn Error>> {
+    let config = parse_config()?;
+    let mut key_store_path = config.arti_key_store;
     key_store_path.push_str(ARTI_PRIVATE_KEY);
     let mut signing_file = File::open(key_store_path)?;
     let mut content = String::new();
@@ -92,7 +107,7 @@ pub async fn signing_key(arti_key_store: String) -> Result<ExpandedKeypair, Box<
 pub fn x25519_handshake(
     remote_public_key: &mut Option<PublicKey>,
     local_public_key: PublicKey,
-    peer_addr: &(String, u16),
+    peer_addr: &str,
     msg: Msg,
 ) -> Result<(), Box<dyn Error>> {
     let Msg::SignedAndPublicKey(signature, claimed_local_public_key, claimed_remote_public_key) =
@@ -104,7 +119,7 @@ pub fn x25519_handshake(
     if local_public_key != &claimed_local_public_key {
         return Err("local key mismatch. Aborting.".into());
     }
-    let hsid = HsId::from_str(&peer_addr.0)?;
+    let hsid = HsId::from_str(peer_addr)?;
     let hsid_bytes = hsid.as_ref();
     let verifying_key = VerifyingKey::from_bytes(hsid_bytes)?;
     let signature = Signature::try_from(&signature[..])?;
@@ -132,7 +147,7 @@ pub fn edhverify(
 /// so Alice can compute Bob's ratchet public key independently.
 /// # Panics
 pub fn derive_bob_ratchet_key(shared_secret: &[u8; 32]) -> (StaticSecret, PublicKey) {
-    use crate::crypto::aead::hkdf_derive;
+    use crypto::aead::hkdf_derive;
     let derived = hkdf_derive::<32>(shared_secret, None, b"conan-v1-bob-ratchet")
         .expect("HKDF cannot fail with valid-length output");
     let priv_key = StaticSecret::from(derived);
@@ -145,7 +160,6 @@ pub fn derive_bob_ratchet_key(shared_secret: &[u8; 32]) -> (StaticSecret, Public
 /// # Errors
 /// # Panics
 pub async fn listener_actor(
-    arti_key_store: String,
     reader: &mut ReadHalf<DataStream>,
     writer: &mut WriteHalf<DataStream>,
     assign_remote_hsid: &mut Option<String>,
@@ -162,7 +176,7 @@ pub async fn listener_actor(
     };
     let local_private_key = EphemeralSecret::random_from_rng(OsRng);
     let local_public_key = PublicKey::from(&local_private_key).to_bytes();
-    let signing_key = signing_key(arti_key_store).await?;
+    let signing_key = signing_key().await?;
 
     // creating signature using local ed25519 private key and stacking local and remote
     // ephemeral keys
@@ -246,11 +260,10 @@ pub async fn listener_actor(
 /// # Panics
 /// # Errors
 pub async fn dialer_actor<R, W>(
-    arti_key_store: String,
     reader: &mut ReadHalf<R>,
     writer: &mut WriteHalf<W>,
     local_hsid: HsId,
-    peer_addr: &(String, u16),
+    peer_addr: &str,
 ) -> Result<RatchetSession, Box<dyn Error>>
 where
     R: AsyncReadExt,
@@ -284,7 +297,7 @@ where
     let Some(shared_secret_key) = ssk else {
         return Err("Couldn't get Shared Secret Key.".into());
     };
-    let signing_key = signing_key(arti_key_store).await?;
+    let signing_key = signing_key().await?;
 
     // preparing message containing signed combined key of remote and local x25519 public key
     // and remote and local ed25519 public key on an encrypted channel using shared secret
@@ -296,7 +309,8 @@ where
     println!("Signing, Encrypting, Sending Message for approval.");
     let signature = signing_key.sign(&data);
     let local_hsid_bytes = local_hsid.as_ref();
-    let remote_hsid = HsId::from_str(&peer_addr.0)?;
+    let remote_hsid = HsId::from_str(peer_addr)?;
+    println!("Peer's Address: {}", remote_hsid.display_unredacted());
     let remote_hsid_bytes = remote_hsid.as_ref();
     let msg = Msg::SignedAndPublicKey(
         signature.to_bytes().to_vec(),
@@ -333,12 +347,13 @@ where
 /// # Errors
 pub async fn send<T>(
     writer: &mut WriteHalf<T>,
-    msg: Vec<u8>,
-    ratchet: Arc<tokio::sync::RwLock<RatchetSession>>,
+    msg: Msg,
+    ratchet: &Arc<tokio::sync::RwLock<RatchetSession>>,
 ) -> Result<(), Box<dyn Error>>
 where
     T: AsyncReadExt + AsyncWriteExt,
 {
+    let msg = msg.to_vec();
     let ratchet_msg = {
         let mut ratchet = ratchet.write().await;
         ratchet.encrypt(&msg, b"")?
@@ -373,4 +388,139 @@ where
     ratchet
         .decrypt(&ratchet_msg, b"")
         .map_err(|e| format!("Decryption failed: {e}").into())
+}
+/// Connects to Peer's Tor Address as a dialer (Seeking connection)
+/// # Errors
+/// # Panics
+pub async fn connect_as_dialer(
+    tor_client: Arc<TorClient<PreferredRuntime>>,
+    msg_sender: broadcast::Sender<IPCRes>,
+    dbconn: &mut Connection,
+    response_sender: broadcast::Sender<(u16, Internal)>,
+    peers: Arc<RwLock<HashMap<u16, Slave>>>,
+    service: Arc<RunningOnionService>,
+    addr: String,
+    port: u16,
+) -> Result<(), Box<dyn Error>> {
+    if let Some(hsid) = service.onion_address()
+        && addr == hsid.display_unredacted().to_string()
+    {
+        msg_sender.send(IPCRes::Error("Cannot connect to Self.".to_string()))?;
+        return Ok(());
+    }
+    // checking if peer is already in our connection
+    {
+        let peer = dbconn.get_peer_from_addr(&addr)?;
+        if let Some(peer) = peer {
+            #[allow(clippy::cast_possible_truncation)]
+            if peers.read().unwrap().contains_key(&peer.id) {
+                msg_sender.send(IPCRes::Connected(addr, port))?;
+                msg_sender.send(IPCRes::Notification(format!(
+                    "Already connected to {}",
+                    peer.name
+                )))?;
+                return Ok(());
+            }
+        }
+    }
+    let service = Arc::clone(&service);
+    let msg_sender = msg_sender.clone();
+    for i in 1..=5 {
+        println!("Connecting to {addr}");
+        match single_connect_as_dialer(
+            Arc::clone(&tor_client),
+            Arc::clone(&service),
+            msg_sender.clone(),
+            dbconn,
+            response_sender.clone(),
+            Arc::clone(&peers),
+            addr.clone(),
+            port,
+        )
+        .await
+        {
+            Ok(_) => {
+                break;
+            }
+            Err(e) => eprintln!("Error while connecting:\n{e:?}"),
+        }
+        if i == 5 {
+            msg_sender
+                .send(IPCRes::Error(
+                    "Failed to Connect.\nPlease check your Internet connection".to_string(),
+                ))
+                .unwrap();
+        } else {
+            msg_sender
+                .send(IPCRes::Notification(format!(
+                    "Retrying Connection. [{i}/5]"
+                )))
+                .unwrap();
+            eprintln!("Retrying...");
+        }
+    }
+    Ok(())
+}
+
+pub async fn single_connect_as_dialer(
+    tor_client: Arc<TorClient<PreferredRuntime>>,
+    service: Arc<RunningOnionService>,
+    msg_sender: broadcast::Sender<IPCRes>,
+    dbconn: &mut Connection,
+    response_sender: broadcast::Sender<(u16, Internal)>,
+    peers: Arc<RwLock<HashMap<u16, Slave>>>,
+    addr: String,
+    port: u16,
+) -> Result<u16, ConanError> {
+    let Ok(stream) = tor_client.connect(&(addr.clone(), port)).await else {
+        return Err(ConanError::ConnectionError);
+    };
+    let (mut reader, mut writer) = tokio::io::split(stream);
+
+    let local_hsid = service
+        .onion_address()
+        .ok_or("Onion Address Not found.")
+        .unwrap();
+    let session = match dialer_actor(&mut reader, &mut writer, local_hsid, &addr).await {
+        Ok(s) => s,
+        Err(e) => {
+            let msg = format!("Error while Reaching out.\n{e:?}");
+            msg_sender.send(IPCRes::Error(msg.clone())).unwrap();
+            return Err(ConanError::ConnectionError);
+        }
+    };
+    let known = dbconn.get_peer_from_addr(&addr).unwrap();
+    let trans = dbconn.transaction().unwrap();
+    let name = generate_name(3..10);
+    let idx = if let Some(known_peer) = known {
+        known_peer.id
+    } else {
+        let peer = Peer::build(&name, &addr, true);
+        let peer = trans.insert_peer(peer).unwrap();
+        peer.id
+    };
+
+    #[allow(clippy::cast_possible_truncation)]
+    let mut conn = Slave::build(
+        idx,
+        reader,
+        writer,
+        service,
+        msg_sender.clone(),
+        response_sender,
+        Some(Arc::new(tokio::sync::RwLock::new(session))),
+    )
+    .unwrap();
+    if conn.spawn_communication().is_ok() {
+        let mut peers = peers.write().unwrap();
+        #[allow(clippy::cast_possible_truncation)]
+        peers.insert(idx, conn);
+        trans.commit().unwrap();
+    } else {
+        _ = trans.rollback();
+    }
+    println!("Exchange Complete..");
+    msg_sender.send(IPCRes::Connected(addr, port)).unwrap();
+
+    Ok(idx)
 }

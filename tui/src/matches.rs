@@ -3,6 +3,7 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use crate::functions::{ConfirmMode, InputMode, LoadingMode};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Tab {
     Contact,
     Chat,
@@ -14,6 +15,33 @@ pub enum Tab {
 pub enum TuiCommand {
     Quit,
     Other(KeyEvent),
+}
+
+pub enum PaletteCommand {
+    AddToGroup(String),
+    NewGroup,
+}
+
+impl PaletteCommand {
+    pub fn try_from(value: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let mut values = value.split(' ');
+        let Some(cmd) = values.next() else {
+            return Err("No Command found.".into());
+        };
+        let val = match cmd {
+            "newgroup" => PaletteCommand::NewGroup,
+            "addtogroup" => {
+                let Some(name) = values.next() else {
+                    return Err("Did not get group name".into());
+                };
+                PaletteCommand::AddToGroup(name.to_string())
+            }
+            _ => {
+                return Err("No such Enum".into());
+            }
+        };
+        Ok(val)
+    }
 }
 
 #[non_exhaustive]
@@ -33,6 +61,11 @@ pub enum Screen {
         prompt: String,
         yes_selected: bool,
         mode: ConfirmMode,
+    },
+    CommandPalette {
+        text: String,
+        cursor_pos: usize,
+        options: Vec<String>,
     },
     None,
 }

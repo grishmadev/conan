@@ -4,7 +4,7 @@ use ratatui::{
     style::Style,
     symbols::border,
     text::Line,
-    widgets::{Block, Borders},
+    widgets::{Block, Borders, Clear},
 };
 
 use crate::App;
@@ -34,6 +34,7 @@ impl InputScreen for App {
         let line_area = block.inner(area);
         #[allow(clippy::cast_possible_truncation)]
         let cposx = *cursor_pos as u16 + line_area.x;
+        f.render_widget(Clear, area);
         f.set_cursor_position((cposx, line_area.y));
         f.render_widget(block, area);
         f.render_widget(text, line_area);

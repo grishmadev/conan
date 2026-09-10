@@ -21,5 +21,5 @@ pub const DAEMON_SOCKET: &str = "/.conan/conan.socket";
 /// Config File Path
 pub const CONFIG_PATH: &str = "/.config/conan/conan.toml";
 
-/// Databse Path
+/// Database Path
 pub const DATABASE_PATH: &str = "/.conan/database";

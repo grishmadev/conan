@@ -4,6 +4,7 @@ use std::error::Error;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    color_eyre::install()?;
     let config = parse_config()?;
     let userid = config
         .socket_path

@@ -99,7 +99,7 @@ impl MainComponents for App {
         } else {
             Style::default()
         };
-        let list_items = self
+        let mut list_items = self
             .contacts
             .iter()
             .map(|i| {
@@ -110,6 +110,22 @@ impl MainComponents for App {
                 })
             })
             .collect::<Vec<_>>();
+
+        let group_items = self
+            .groups
+            .iter()
+            .map(|i| {
+                ListItem::new(i.name.clone()).style(if i.connected {
+                    Style::new().green()
+                } else {
+                    Style::new().white()
+                })
+            })
+            .collect::<Vec<_>>();
+
+        list_items.push(ListItem::new("Groups"));
+        list_items.extend(group_items);
+
         let contact_list = List::new(list_items)
             .block(left_block)
             .style(contact_style)

@@ -1,27 +1,27 @@
-use std::error::Error;
-
 use bincode::{Decode, Encode};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Decode, Encode, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Peer {
-    pub id: u32,
+    pub id: u16,
     pub name: String,
     pub address: String,
     pub connected: bool,
+    pub is_friend: bool,
 }
 
 impl Peer {
     /// Used to build Peer Struct with given parameters
     #[must_use]
-    pub fn build(name: &str, address: &str) -> Self {
+    pub fn build(name: &str, address: &str, is_friend: bool) -> Self {
         let address = address.into();
         let name = name.into();
         Self {
             id: 0,
             name,
             address,
+            is_friend,
             connected: false,
         }
     }
@@ -30,33 +30,39 @@ impl Peer {
 pub trait PeerData {
     /// Lists Peers from Local Database
     /// # Errors
-    fn list_all_peers(&self) -> Result<Vec<Peer>, Box<dyn Error>>;
+    fn list_all_peers(&self, include_friends: bool) -> Result<Vec<Peer>, rusqlite::Error>;
     /// Get's name of Peer if exists else None
     /// # Errors
-    fn get_peer_from_addr(&self, addr: &str) -> Result<Option<Peer>, Box<dyn Error>>;
+    fn get_peer_from_addr(&self, addr: &str) -> Result<Option<Peer>, rusqlite::Error>;
     /// Pulls peer Info from Local Database
     /// # Errors
-    fn get_peer_from_id(&self, id: u32) -> Result<Option<Peer>, Box<dyn Error>>;
+    fn get_peer_from_id(&self, id: u16) -> Result<Option<Peer>, rusqlite::Error>;
     /// Inserts peers to Local Database
     /// # Errors
-    fn insert_peer(&self, peer: Peer) -> Result<Peer, Box<dyn Error>>;
+    fn insert_peer(&self, peer: Peer) -> Result<Peer, rusqlite::Error>;
     /// Deletes from Local Database based on peer id
     /// # Errors
-    fn delete_peer(&self, id: u32) -> Result<(), Box<dyn Error>>;
+    fn delete_peer(&self, id: u16) -> Result<(), rusqlite::Error>;
     /// renames peer in Local Database
     /// # Errors
-    fn rename_peer(&self, id: u32, new_name: String) -> Result<(), Box<dyn Error>>;
+    fn rename_peer(&self, id: u16, new_name: String) -> Result<(), rusqlite::Error>;
 }
 
 impl PeerData for Connection {
-    fn list_all_peers(&self) -> Result<Vec<Peer>, Box<dyn Error>> {
+    fn list_all_peers(&self, only_friends: bool) -> Result<Vec<Peer>, rusqlite::Error> {
         let mut result = vec![];
-        let mut query = self.prepare("SELECT * FROM peer")?;
+        let query = if only_friends {
+            "SELECT * FROM peer WHERE is_friend = TRUE"
+        } else {
+            "SELECT * FROM peer"
+        };
+        let mut query = self.prepare(query)?;
         let rows = query.query_map([], |p| {
             Ok(Peer {
                 id: p.get(0)?,
                 name: p.get(1)?,
                 address: p.get(2)?,
+                is_friend: p.get(3)?,
                 connected: false,
             })
         })?;
@@ -67,13 +73,14 @@ impl PeerData for Connection {
         Ok(result)
     }
 
-    fn get_peer_from_addr(&self, addr: &str) -> Result<Option<Peer>, Box<dyn Error>> {
+    fn get_peer_from_addr(&self, addr: &str) -> Result<Option<Peer>, rusqlite::Error> {
         let mut stmt = self.prepare("SELECT * FROM peer WHERE address = ?1")?;
         let result = stmt.query_row([&addr], |r| {
             Ok(Peer {
                 id: r.get(0)?,
                 name: r.get(1)?,
                 address: r.get(2)?,
+                is_friend: r.get(3)?,
                 connected: false,
             })
         });
@@ -89,13 +96,14 @@ impl PeerData for Connection {
         Ok(peer)
     }
 
-    fn get_peer_from_id(&self, id: u32) -> Result<Option<Peer>, Box<dyn Error>> {
+    fn get_peer_from_id(&self, id: u16) -> Result<Option<Peer>, rusqlite::Error> {
         let mut stmt = self.prepare("SELECT * FROM peer WHERE id = ?1")?;
         let result = stmt.query_row([&id], |r| {
             Ok(Peer {
                 id: r.get(0)?,
                 name: r.get(1)?,
                 address: r.get(2)?,
+                is_friend: r.get(3)?,
                 connected: false,
             })
         });
@@ -111,12 +119,13 @@ impl PeerData for Connection {
         Ok(peer)
     }
 
-    fn insert_peer(&self, peer: Peer) -> Result<Peer, Box<dyn Error>> {
-        let mut stmt = self.prepare("INSERT INTO peer (name, address) VALUES (?1, ?2)")?;
-        match stmt.execute((&peer.name, &peer.address)) {
+    fn insert_peer(&self, peer: Peer) -> Result<Peer, rusqlite::Error> {
+        let mut stmt =
+            self.prepare("INSERT INTO peer (name, address, is_friend) VALUES (?1, ?2, ?3)")?;
+        match stmt.execute((&peer.name, &peer.address, &peer.is_friend)) {
             Ok(s) => {
                 if s == 0 {
-                    return Err("Nothing was inserted.".into());
+                    return Err(rusqlite::Error::QueryReturnedNoRows);
                 }
                 let stmt = self
                     .prepare("SELECT * FROM peer WHERE name = ?1 AND address = ?2")?
@@ -125,29 +134,30 @@ impl PeerData for Connection {
                             id: r.get(0)?,
                             name: r.get(1)?,
                             address: r.get(2)?,
+                            is_friend: r.get(3)?,
                             connected: false,
                         })
                     });
                 Ok(stmt?)
             }
-            Err(e) => Err(e.into()),
+            Err(e) => Err(e),
         }
     }
 
-    fn delete_peer(&self, id: u32) -> Result<(), Box<dyn Error>> {
+    fn delete_peer(&self, id: u16) -> Result<(), rusqlite::Error> {
         let mut stmt = self.prepare("DELETE FROM peer WHERE id = ?1")?;
         match stmt.execute([id]) {
             Ok(s) => {
                 if s == 0 {
-                    return Err("Nothing was inserted.".into());
+                    return Err(rusqlite::Error::QueryReturnedNoRows);
                 }
                 Ok(())
             }
-            Err(e) => Err(e.into()),
+            Err(e) => Err(e),
         }
     }
 
-    fn rename_peer(&self, id: u32, new_name: String) -> Result<(), Box<dyn Error>> {
+    fn rename_peer(&self, id: u16, new_name: String) -> Result<(), rusqlite::Error> {
         let mut stmt = self.prepare("UPDATE peer SET name = ?1 WHERE id = ?2")?;
         stmt.execute((new_name, id))?;
         Ok(())

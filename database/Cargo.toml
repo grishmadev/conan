@@ -1,0 +1,22 @@
+[package]
+name = "database"
+authors.workspace = true
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+extras.workspace = true
+rusqlite.workspace = true
+openmls_sqlite_storage.workspace = true
+openmls_rust_crypto.workspace = true
+serde.workspace = true
+bincode.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+
+
+[lints]
+workspace = true

@@ -1,4 +1,5 @@
 use conanprotocol::config::parse_config;
+use database::entities::group_chat::ConnectionGroupChat;
 use rusqlite::Connection;
 use std::error::Error;
 
@@ -6,8 +7,10 @@ use std::error::Error;
 /// Not a part of the codebase
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let dbpath = parse_config()?;
-    let conn = Connection::open(dbpath.db_path)?;
-    conn.execute("DELETE FROM chat WHERE 1 = 1", ())?;
+    let config = parse_config()?;
+    let conn = Connection::open(config.db_path)?;
+    let chats = conn.list_all_group_chat()?;
+    println!("chats: {chats:#?}");
+    // conn.execute("DELETE FROM group_chat ", [])?;
     Ok(())
 }

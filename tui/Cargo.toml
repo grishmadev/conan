@@ -13,6 +13,7 @@ path = "src/main.rs"
 doctest = false
 
 [dependencies]
+database.workspace = true
 conan-protocol.workspace = true
 tokio.workspace = true
 tracing-subscriber.workspace = true
@@ -22,6 +23,7 @@ crossterm.workspace = true
 bincode.workspace = true
 clap.workspace = true
 notify-rust.workspace = true
+color-eyre.workspace = true
 
 [lints]
 workspace = true

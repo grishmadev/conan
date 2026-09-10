@@ -11,10 +11,12 @@ pub enum InputMode {
 pub enum ConfirmMode {
     Exit,
     DeletePeer,
+    DisconnectPeer,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoadingMode {
-    NewPeer,
+    PeerConnect,
     StartServer,
+    GroupConnect,
 }

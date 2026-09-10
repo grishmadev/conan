@@ -15,7 +15,7 @@ impl TerminalControl for App {
             }
             Tab::Chat => {
                 self.tab = Tab::Contact;
-                self.mode = Mode::Normal
+                self.mode = Mode::Normal;
             }
         }
     }

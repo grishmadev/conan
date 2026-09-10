@@ -16,6 +16,9 @@ doctest = false
 workspace = true
 
 [dependencies]
+database.workspace = true
+extras.workspace = true
+crypto.workspace = true
 arti-client.workspace = true
 tokio.workspace = true
 tokio-rustls.workspace = true
@@ -39,7 +42,6 @@ config.workspace = true
 ssh-encoding.workspace = true
 base64.workspace = true
 chrono.workspace = true
-rusqlite.workspace = true
 notify-rust.workspace = true
 chacha20poly1305.workspace = true
 hkdf.workspace = true
@@ -48,3 +50,9 @@ zeroize.workspace = true
 thiserror.workspace = true
 bs58.workspace = true
 hex.workspace = true
+openmls.workspace = true
+openmls_rust_crypto.workspace = true
+openmls_basic_credential.workspace = true
+libp2p.workspace = true
+openmls_sqlite_storage.workspace = true
+color-eyre.workspace = true

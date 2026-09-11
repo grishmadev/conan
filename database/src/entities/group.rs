@@ -28,6 +28,7 @@ pub trait ConnectionGroup {
     fn list_groups(&self) -> Result<Vec<DBGroup>, rusqlite::Error>;
     fn insert_group(&self, group: DBGroup) -> Result<DBGroup, rusqlite::Error>;
     fn delete_group(&self, group_id: u16) -> Result<(), rusqlite::Error>;
+    fn rename_group(&self, group_id: u16, name: String) -> Result<DBGroup, rusqlite::Error>;
     fn get_group_by_group_id(&self, group_id: &[u8]) -> Result<DBGroup, rusqlite::Error>;
     fn get_group_by_idx(&self, idx: u16) -> Result<DBGroup, rusqlite::Error>;
 }
@@ -89,8 +90,22 @@ impl ConnectionGroup for Connection {
         Ok(())
     }
 
+    fn rename_group(&self, id: u16, name: String) -> Result<DBGroup, rusqlite::Error> {
+        let mut stmt = self.prepare(
+            "UPDATE my_group SET name = ?1 WHERE id = ?2 RETURNING id, group_id, name, created_at",
+        )?;
+        let row = stmt.query_row(params![name, id], |r| {
+            Ok(DBGroup {
+                id: r.get("id")?,
+                group_id: r.get::<_, Vec<u8>>("group_id")?,
+                name: r.get("name")?,
+                connected: false,
+            })
+        })?;
+        Ok(row)
+    }
+
     fn get_group_by_group_id(&self, group_id: &[u8]) -> Result<DBGroup, rusqlite::Error> {
-        println!("getting groups from group id");
         let mut stmt = self.prepare("SELECT * FROM my_group WHERE group_id = ?1")?;
         let row = stmt.query_one(params![group_id], |r| {
             Ok(DBGroup {
@@ -104,7 +119,6 @@ impl ConnectionGroup for Connection {
     }
 
     fn get_group_by_idx(&self, idx: u16) -> Result<DBGroup, rusqlite::Error> {
-        println!("getting groups from idx");
         let mut stmt = self.prepare("SELECT * FROM my_group WHERE id = ?1")?;
         let row = stmt.query_one([idx], |r| {
             Ok(DBGroup {

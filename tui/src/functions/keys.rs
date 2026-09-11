@@ -123,22 +123,35 @@ impl Keys for App {
                 };
             }
             KeyCode::Char('r') if matches!(self.tab, Tab::Contact) => {
-                let (true, Some(idx)) = self.current_contact() else {
+                let (is_peer, Some(idx)) = self.current_contact() else {
                     return Ok(());
                 };
-                let Some(peer) = self.contacts.get(idx) else {
-                    return Ok(());
-                };
-                if peer.id == 1 {
-                    self.notification = Some(("Cannot rename self.".to_string(), Instant::now()));
-                    return Ok(());
+                if is_peer {
+                    let Some(peer) = self.contacts.get(idx) else {
+                        return Ok(());
+                    };
+                    if peer.id == 1 {
+                        self.notification =
+                            Some(("Cannot rename self.".to_string(), Instant::now()));
+                        return Ok(());
+                    }
+                    self.active_screen = Screen::InputScreen {
+                        input: peer.name.clone(),
+                        cursor_pos: peer.name.len(),
+                        prompt: " Rename Peer ".into(),
+                        mode: InputMode::RenamePeer,
+                    };
+                } else {
+                    let Some(group) = self.groups.get(idx) else {
+                        return Ok(());
+                    };
+                    self.active_screen = Screen::InputScreen {
+                        input: group.name.clone(),
+                        cursor_pos: group.name.len(),
+                        prompt: " Rename Group ".into(),
+                        mode: InputMode::RenameGroup,
+                    };
                 }
-                self.active_screen = Screen::InputScreen {
-                    input: peer.name.clone(),
-                    cursor_pos: peer.name.len(),
-                    prompt: " Rename Peer ".into(),
-                    mode: InputMode::RenamePeer,
-                };
             }
             KeyCode::Char('a') => {
                 self.active_screen = Screen::InputScreen {
@@ -201,9 +214,9 @@ impl Keys for App {
                             }
                             self.active_screen = Screen::LoadingScreen {
                                 loading_text: "Connecting...".into(),
-                                mode: LoadingMode::PeerConnect,
+                                mode: LoadingMode::PeerConnect(peer.id),
                             };
-                            self.send(IPCCmd::Connect(peer.address.clone(), 80)).await?;
+                            self.send(IPCCmd::Connect(peer.id)).await?;
                             self.send(IPCCmd::ChatList {
                                 #[allow(clippy::cast_possible_truncation)]
                                 peer_id: idx as u16,
@@ -216,7 +229,7 @@ impl Keys for App {
                             };
                             self.active_screen = Screen::LoadingScreen {
                                 loading_text: format!("Connecting to {}..", grp.name),
-                                mode: LoadingMode::GroupConnect,
+                                mode: LoadingMode::GroupConnect(grp.id),
                             };
                             self.send(IPCCmd::GroupConnect(grp.id)).await?;
                         }
@@ -341,12 +354,8 @@ impl Keys for App {
             }
             KeyCode::Enter => match mode {
                 InputMode::NewPeer => {
-                    let msg = IPCCmd::Connect(input.clone(), 80);
+                    let msg = IPCCmd::AddPeer(input.clone(), 80);
                     self.send(msg).await?;
-                    self.active_screen = Screen::LoadingScreen {
-                        loading_text: "Adding peer...".to_string(),
-                        mode: LoadingMode::PeerConnect,
-                    };
                 }
                 InputMode::RenamePeer => {
                     let Some(idx) = self.contact_idx.selected() else {
@@ -357,6 +366,25 @@ impl Keys for App {
                     };
                     #[allow(clippy::cast_possible_truncation)]
                     let msg = IPCCmd::RenamePeer(peer.id, input.clone());
+                    self.send(msg).await?;
+                    self.active_screen = Screen::None;
+                }
+                InputMode::RenameGroup => {
+                    let Some(idx) = self.contact_idx.selected() else {
+                        self.notification = Some(("nothing selected".to_string(), Instant::now()));
+                        return Ok(());
+                    };
+                    let new_idx = idx - self.contacts.len() - 1;
+                    let Some(group) = self.groups.get(new_idx) else {
+                        self.notification = Some((
+                            format!("idx: {}, contact len: {}", idx, self.contacts.len())
+                                .to_string(),
+                            Instant::now(),
+                        ));
+                        return Ok(());
+                    };
+                    #[allow(clippy::cast_possible_truncation)]
+                    let msg = IPCCmd::RenameGroup(group.id, input.clone());
                     self.send(msg).await?;
                     self.active_screen = Screen::None;
                 }

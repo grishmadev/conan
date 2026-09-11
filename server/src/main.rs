@@ -10,7 +10,7 @@ use database::entities::{
     chat::{Chat, ChatData},
     group::{ConnectionGroup, DBGroup},
     group_chat::ConnectionGroupChat,
-    peer::PeerData,
+    peer::{Peer, PeerData},
 };
 use extras::generate_name;
 use openmls::group::MlsGroup;
@@ -39,18 +39,39 @@ async fn main() -> Result<(), Box<dyn Error>> {
         if let Ok(s) = worker_receiver.recv() {
             match s {
                 IPCCmd::Tick => {
-                    manager.msg_sender.send(IPCRes::Tock)?;
+                    msg_sender.send(IPCRes::Tock)?;
                 }
                 IPCCmd::StartServer => {
                     let started = manager.server_ready.load(Ordering::SeqCst);
                     msg_sender.send(IPCRes::ServerStarted(started))?;
                 }
-                IPCCmd::Connect(addr, port) => {
-                    println!("addr to connect: {addr}:{port}");
-                    if let Err(e) = manager.connect_as_dialer(addr, port) {
-                        return Err(format!("Cannot connect as Dialer:\n{e}").into());
+                IPCCmd::AddPeer(addr, _) => {
+                    let name = generate_name(3..8);
+                    let peer = Peer::build(&name, &addr, true);
+                    let peer = manager.dbconn.insert_peer(peer)?;
+                    msg_sender.send(IPCRes::AddedPeer(peer))?;
+                }
+                IPCCmd::Connect(peer_id) => {
+                    let present_in_peers = manager.peers.read().unwrap().contains_key(&peer_id);
+                    let present_in_waitlist = manager.waitlist.contains(&peer_id);
+
+                    if present_in_peers {
+                        let res = IPCRes::Connected(peer_id, true);
+                        msg_sender.send(res)?;
+                        manager.waitlist.remove(&peer_id);
+                    } else if present_in_waitlist {
+                        let res = IPCRes::Connected(peer_id, false);
+                        msg_sender.send(res)?;
+                    } else {
+                        let dbpeer = manager.dbconn.get_peer_from_id(peer_id)?.unwrap();
+                        if let Err(e) = manager.connect_as_dialer(dbpeer.address, 80) {
+                            return Err(format!("Cannot connect as Dialer:\n{e}").into());
+                        }
+                        msg_sender.send(IPCRes::Connected(peer_id, false))?;
+                        manager.waitlist.insert(peer_id);
                     }
                 }
+
                 IPCCmd::Text(idx, text) => {
                     if idx == 1 {
                         let chat = Chat::chat_to_send(&text, 1);
@@ -70,6 +91,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         target.command_sender.send(SlaveCmd::Msg(msg)).unwrap();
                     }
                 }
+
                 IPCCmd::Disconnect(idx) => {
                     if idx == 1 {
                         continue;
@@ -81,6 +103,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     };
                     target.command_sender.send(SlaveCmd::Shutdown)?;
                 }
+
                 IPCCmd::PeerList => {
                     let mut peers = manager.dbconn.list_all_peers(true)?;
                     if let Ok(mem_slaves) = Arc::clone(&manager.peers).read() {
@@ -92,10 +115,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
                     manager.msg_sender.send(IPCRes::PeerList(peers))?;
                 }
+
                 IPCCmd::DeletePeer(idx) => {
                     manager.dbconn.delete_peer(idx)?;
                     manager.msg_sender.send(IPCRes::DeletedPeer(idx))?;
                 }
+
                 IPCCmd::DeleteGroup(idx) => {
                     #[allow(clippy::cast_possible_truncation)]
                     manager.dbconn.delete_group(idx)?;
@@ -136,6 +161,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     if let Err(err) = manager.make_peer_join_group(peer_idx, group_idx) {
                         eprintln!("Cannot Join. {err}");
                     }
+                }
+
+                IPCCmd::RenameGroup(idx, name) => {
+                    manager.dbconn.rename_group(idx, name)?;
+                    manager.msg_sender.send(IPCRes::RenamedGroup(idx))?;
                 }
 
                 IPCCmd::GroupConnect(idx) => {

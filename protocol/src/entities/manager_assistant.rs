@@ -172,9 +172,12 @@ impl CommandHandler {
         };
         peer.command_sender
             .send(SlaveCmd::Msg(Msg::Welcome(welcome)))?;
-        target_group.merge_pending_commit(&self.provider)?;
+
+        // target_group.merge_pending_commit(&self.provider)?;
+
         let members = target_group.get_members()?;
         println!("members in keypackage: {members:?}");
+
         for m in &members {
             let dbpeer = self
                 .dbconn
@@ -187,6 +190,7 @@ impl CommandHandler {
                 )))?;
             }
         }
+        target_group.merge_pending_commit(&self.provider)?;
         Ok(())
     }
 
@@ -240,6 +244,7 @@ impl CommandHandler {
         if let Err(e) = grp.merge_pending_commit(&self.provider) {
             eprintln!("Error while merging commit: {e:?}");
         }
+        println!("members: {:#?}", grp.get_members()?);
         // the group is already saved in initializers database
         // so it can be retrieved
         let db_group = self.dbconn.get_group_by_group_id(group_id)?;

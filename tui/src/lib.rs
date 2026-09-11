@@ -202,13 +202,33 @@ impl App {
                     }
                 }
 
-                IPCRes::Connected(_, _) => {
-                    if let Screen::LoadingScreen { ref mode, .. } = self.active_screen
-                        && matches!(mode, LoadingMode::PeerConnect)
-                    {
-                        self.active_screen = Screen::None;
+                IPCRes::AddedPeer(peer) => {
+                    self.notification = Some(("Added Peer.".into(), Instant::now()));
+                    let cmd = IPCCmd::Connect(peer.id);
+                    self.active_screen = Screen::LoadingScreen {
+                        loading_text: "Adding peer...".to_string(),
+                        mode: LoadingMode::PeerConnect(peer.id),
+                    };
+                    self.contacts.push(peer);
+                    self.send(cmd).await?;
+                }
+
+                IPCRes::Connected(peer_id, connected) => {
+                    if connected {
+                        if matches!(
+                            self.active_screen,
+                            Screen::LoadingScreen {
+                                mode: LoadingMode::PeerConnect(_),
+                                ..
+                            }
+                        ) {
+                            self.active_screen = Screen::None;
+                        }
+                        self.notification = Some(("Connected.".to_string(), Instant::now()));
+                    } else {
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        self.send(IPCCmd::Connect(peer_id)).await?;
                     }
-                    self.notification = Some(("Connected.".to_string(), Instant::now()));
                 }
 
                 IPCRes::Error(text) => {
@@ -231,7 +251,7 @@ impl App {
                     if matches!(
                         self.active_screen,
                         Screen::LoadingScreen {
-                            mode: LoadingMode::GroupConnect,
+                            mode: LoadingMode::GroupConnect(_),
                             ..
                         }
                     ) {

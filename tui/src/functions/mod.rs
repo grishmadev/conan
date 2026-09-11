@@ -5,6 +5,7 @@ pub mod terminal_control;
 pub enum InputMode {
     NewPeer,
     RenamePeer,
+    RenameGroup,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,7 +17,7 @@ pub enum ConfirmMode {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoadingMode {
-    PeerConnect,
+    PeerConnect(u16),
     StartServer,
-    GroupConnect,
+    GroupConnect(u16),
 }

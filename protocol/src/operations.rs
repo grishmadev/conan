@@ -414,7 +414,7 @@ pub async fn connect_as_dialer(
         if let Some(peer) = peer {
             #[allow(clippy::cast_possible_truncation)]
             if peers.read().unwrap().contains_key(&peer.id) {
-                msg_sender.send(IPCRes::Connected(addr, port))?;
+                msg_sender.send(IPCRes::Connected(peer.id, true))?;
                 msg_sender.send(IPCRes::Notification(format!(
                     "Already connected to {}",
                     peer.name
@@ -520,7 +520,7 @@ pub async fn single_connect_as_dialer(
         _ = trans.rollback();
     }
     println!("Exchange Complete..");
-    msg_sender.send(IPCRes::Connected(addr, port)).unwrap();
+    msg_sender.send(IPCRes::Connected(idx, true)).unwrap();
 
     Ok(idx)
 }

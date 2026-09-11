@@ -18,7 +18,7 @@ use openmls::{
 use openmls_sqlite_storage::SqliteStorageProvider;
 use safelog::DisplayRedacted;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     error::Error,
     sync::{
         Arc, RwLock,
@@ -60,6 +60,8 @@ pub struct Manager {
     pub msg_sender: broadcast::Sender<IPCRes>,
     /// Used for receiving messages from Slaves and transferring them to Master
     pub response_receiver: broadcast::Receiver<(u16, Internal)>,
+    /// Waitlist for remembering peers who are **connecting** or in queue of connecting right now
+    pub waitlist: HashSet<u16>,
     /// `HashMap` for tracking active peers
     pub peers: Arc<RwLock<HashMap<u16, Slave>>>,
     /// `HashMap` for tracking active Groups
@@ -141,13 +143,14 @@ impl Manager {
 
         Ok(Self {
             tor_client,
-            peers: Arc::new(RwLock::new(HashMap::new())),
-            groups: Arc::new(RwLock::new(HashMap::new())),
-            invitation_memory: Arc::new(RwLock::new(HashMap::new())),
             stream: Some(request_stream.boxed()),
             service,
             server_ready: AtomicBool::new(false),
             dbconn: Connection::open(&config.db_path)?,
+            waitlist: HashSet::new(),
+            peers: Arc::new(RwLock::new(HashMap::new())),
+            groups: Arc::new(RwLock::new(HashMap::new())),
+            invitation_memory: Arc::new(RwLock::new(HashMap::new())),
             msg_sender,
             response_receiver,
             response_sender,
@@ -275,7 +278,7 @@ impl Manager {
             if let Some(peer) = peer {
                 #[allow(clippy::cast_possible_truncation)]
                 if peers.read().unwrap().contains_key(&peer.id) {
-                    msg_sender.send(IPCRes::Connected(addr, port))?;
+                    msg_sender.send(IPCRes::Connected(peer.id, true))?;
                     msg_sender.send(IPCRes::Notification(format!(
                         "Already connected to {}",
                         peer.name

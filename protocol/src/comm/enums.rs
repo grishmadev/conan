@@ -14,8 +14,10 @@ pub enum IPCCmd {
     PingChat,
     /// Basic Tick
     Tick,
-    /// Connect with given peer (peer address, port)
-    Connect(String, u16),
+    /// Add a given peer (peer address, port)
+    AddPeer(String, u16),
+    /// Connect with given peer (peer id)
+    Connect(u16),
     /// Disconnect from given peer (peer idx)
     Disconnect(u16),
     /// Send Text to Peer (peer index, text)
@@ -23,10 +25,7 @@ pub enum IPCCmd {
     /// Get list of all peers
     PeerList,
     /// Get Chat List for a given contact
-    ChatList {
-        peer_id: u16,
-        msg_amount: u8,
-    },
+    ChatList { peer_id: u16, msg_amount: u8 },
     /// Get Group Chats for a given group
     GroupChatList {
         /// Group id
@@ -46,29 +45,60 @@ pub enum IPCCmd {
     NewGroup(Option<String>),
     /// Add member to a group (group index, peer index)
     AddToGroup(u16, u16),
+    /// Renames Selected group (u16)
+    RenameGroup(u16, String),
     /// Get List of groups
     GroupList,
     /// Connect to a group given database index
     GroupConnect(u16),
+    /// Send Command to other peers to join a group as well
     InitiateGroup(Vec<u8>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum IPCRes {
+    /// Response for Server Status
     ServerStarted(bool),
-    Connected(String, u16),
+    /// Response for added peer (Peer)
+    AddedPeer(Peer),
+    /// Response for successful connection (peer id, connected)
+    Connected(u16, bool),
+    /// Response for Successful Text Response (peer idx, message)
     Text(u16, String),
+    /// Response for Notification
     Notification(String),
+    /// Response for general Error
     Error(String),
+    /// Response for List of Peers
     PeerList(Vec<Peer>),
-    ChatList { peer_id: u16, chats: Vec<Chat> },
+    /// Response for Chat List
+    ChatList {
+        /// Peer id
+        peer_id: u16,
+        /// List of Chats
+        chats: Vec<Chat>,
+    },
+    /// Response for [`IPCCmd::Tick`]
     Tock,
+    /// Response for Deleted Peer
     DeletedPeer(u16),
+    /// Response for Group Deleted
     DeletedGroup(u16),
+    /// Response for Peer Renamed
     RenamedPeer(u16),
+    /// Response for List of groups
     GroupList(Vec<DBGroup>),
-    GroupChatList { group_idx: u16, chats: Vec<Chat> },
+    /// Response for Group Chats
+    GroupChatList {
+        /// Group index
+        group_idx: u16,
+        /// List of chats
+        chats: Vec<Chat>,
+    },
+    /// Response for Group Renamed (group id)
+    RenamedGroup(u16),
+    /// Response for Group Connected (message, group id)
     GroupConnected(String, u16),
 }
 

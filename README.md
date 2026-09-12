@@ -128,16 +128,14 @@ conan -s <socket path> \
 | `Esc`         | Return to contact list from chat, Cancel Loading State   |
 | `Ctrl+C`      | Force quit from any screen                               |
 
-`Note: Whatever written below or marked * are beta features and still in development. If you discover any bugs, please create an issue or even better contribute to this project!`
+`Note: Whatever written below or marked * are beta features and still in development. You WILL find bugs and when you do, please create an issue or even better contribute to this project!`
 
 ### Valid Commands in Command Palette
 
-| Command                   | Action                    |
-| ------------------------- | ------------------------- |
-| `newgroup`                | Creates a new group       |
-| `addtogroup <group name>` | Add a member to the group |
-
-Note: you should be connected to the group & peer should already be selected when executing `addtogroup` command.
+- `newgroup <group name>`: Creates a new group
+  Note: Leave namespace blank to assign random name
+- `addtogroup <group name>`: Add a member to the group
+  Note: you should be connected to the group & peer should already be selected when executing `addtogroup` command.
 
 ## License
 

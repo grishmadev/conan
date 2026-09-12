@@ -19,7 +19,7 @@ pub enum TuiCommand {
 
 pub enum PaletteCommand {
     AddToGroup(String),
-    NewGroup,
+    NewGroup(Option<String>),
 }
 
 impl PaletteCommand {
@@ -29,7 +29,13 @@ impl PaletteCommand {
             return Err("No Command found.".into());
         };
         let val = match cmd {
-            "newgroup" => PaletteCommand::NewGroup,
+            "newgroup" => {
+                let name = match values.next() {
+                    Some(name) => Some(name.to_string()),
+                    None => None,
+                };
+                PaletteCommand::NewGroup(name)
+            }
             "addtogroup" => {
                 let Some(name) = values.next() else {
                     return Err("Did not get group name".into());

@@ -518,8 +518,8 @@ impl Keys for App {
             KeyCode::Enter => match PaletteCommand::try_from(text) {
                 Ok(cmd) => {
                     match cmd {
-                        PaletteCommand::NewGroup => {
-                            self.send(IPCCmd::NewGroup(None)).await?;
+                        PaletteCommand::NewGroup(name) => {
+                            self.send(IPCCmd::NewGroup(name)).await?;
                         }
                         PaletteCommand::AddToGroup(grp_name) => {
                             let (true, Some(idx)) = self.current_contact() else {

@@ -1,6 +1,7 @@
 use crate::comm::enums::IPCRes;
 use crate::comm::error::ConanError;
 use crate::config::parse_config;
+use crate::constants::SELF_PORT;
 use crate::entities::slave::Slave;
 use crate::msg::Internal;
 use crate::{constants::ARTI_PRIVATE_KEY, msg::Msg};
@@ -400,7 +401,6 @@ pub async fn connect_as_dialer(
     peers: Arc<RwLock<HashMap<u16, Slave>>>,
     service: Arc<RunningOnionService>,
     addr: String,
-    port: u16,
 ) -> Result<(), Box<dyn Error>> {
     if let Some(hsid) = service.onion_address()
         && addr == hsid.display_unredacted().to_string()
@@ -435,7 +435,6 @@ pub async fn connect_as_dialer(
             response_sender.clone(),
             Arc::clone(&peers),
             addr.clone(),
-            port,
         )
         .await
         {
@@ -470,9 +469,8 @@ pub async fn single_connect_as_dialer(
     response_sender: broadcast::Sender<(u16, Internal)>,
     peers: Arc<RwLock<HashMap<u16, Slave>>>,
     addr: String,
-    port: u16,
 ) -> Result<u16, ConanError> {
-    let Ok(stream) = tor_client.connect(&(addr.clone(), port)).await else {
+    let Ok(stream) = tor_client.connect(&(addr.clone(), SELF_PORT)).await else {
         return Err(ConanError::ConnectionError);
     };
     let (mut reader, mut writer) = tokio::io::split(stream);

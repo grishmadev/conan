@@ -33,6 +33,7 @@ pub struct Slave {
 }
 
 impl Slave {
+    /// # Errors
     pub fn build(
         id: u16,
         reader: ReadHalf<DataStream>,
@@ -41,7 +42,7 @@ impl Slave {
         msg_sender: broadcast::Sender<IPCRes>,
         response_sender: broadcast::Sender<(u16, Internal)>,
         ratchet_session: Option<Arc<RwLock<RatchetSession>>>,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> Result<Self, Box<dyn Error>> {
         let cmd = tokio::sync::broadcast::channel::<SlaveCmd>(10);
 
         Ok(Self {
@@ -110,10 +111,10 @@ impl Slave {
                             writer.shutdown().await.unwrap();
                         }
                     }
-                    if let Some(cmd) = cmd {
-                        if let Err(e) = send(&mut writer, cmd, &ratchet).await {
-                            println!("{:?}", ConanError::Other(e.to_string()));
-                        }
+                    if let Some(cmd) = cmd
+                        && let Err(e) = send(&mut writer, cmd, &ratchet).await
+                    {
+                        println!("{:?}", ConanError::Other(e.to_string()));
                     }
                 }
             }

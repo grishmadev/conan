@@ -14,14 +14,18 @@ pub struct GroupToPeer {
 }
 
 pub trait GroupMember {
+    /// # Errors
     fn list_members(&self, id: u16) -> Result<Vec<Peer>, Box<dyn Error>>;
+    /// # Errors
     fn insert_member(
         &self,
         group_idx: u16,
         member: Peer,
         known: bool,
     ) -> Result<Peer, Box<dyn Error>>;
+    /// # Errors
     fn list_groups_with_member(&self, peer_id: u16) -> Result<Vec<DBGroup>, Box<dyn Error>>;
+    /// # Errors
     fn remove_member(&self, peer_id: u16, group_id: u16) -> Result<(), Box<dyn Error>>;
 }
 
@@ -49,11 +53,11 @@ impl GroupMember for Connection {
 
     fn list_groups_with_member(&self, peer_id: u16) -> Result<Vec<DBGroup>, Box<dyn Error>> {
         let mut stmt = self.prepare("SELECT * FROM group_to_peer WHERE peer_id = ?1")?;
-        let rows = stmt.query_map([peer_id], |r| r.get::<_, u8>("group_id"))?;
+        let rows = stmt.query_map([peer_id], |r| r.get::<_, u16>("group_id"))?;
         let mut result = vec![];
         for r in rows {
             let r = r?;
-            let group = self.get_group_by_idx(r as u16)?;
+            let group = self.get_group_by_idx(r)?;
             result.push(group);
         }
         Ok(result)

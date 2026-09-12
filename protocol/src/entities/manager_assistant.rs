@@ -4,6 +4,7 @@ use crate::{
         error::ConanError,
         notification::ConanNotif,
     },
+    config::parse_config,
     entities::slave::Slave,
     extras::mls_provider::ConanMlsProvider,
     mls::{ConanGroup, ConanGroupError},
@@ -58,12 +59,13 @@ impl CommandHandler {
         peers: Arc<RwLock<HashMap<u16, Slave>>>,
         groups: Arc<RwLock<HashMap<u16, MlsGroup>>>,
         invitation_memory: Arc<RwLock<HashMap<u16, Vec<u8>>>>,
-        dbconn: Connection,
         msg_sen: broadcast::Sender<IPCRes>,
         expanded_key: ExpandedKeypair,
         provider: ConanMlsProvider,
         sndr: std::sync::mpsc::Sender<Internal>,
     ) -> Self {
+        let config = parse_config().unwrap();
+        let dbconn = Connection::open(&config.db_path).unwrap();
         let openmls_store = SqliteStorageProvider::from_db(&dbconn).unwrap();
         let (signer, _, _) = MlsGroup::signer_from_expanded_key(&expanded_key);
         Self {
@@ -183,6 +185,9 @@ impl CommandHandler {
                 .dbconn
                 .get_peer_from_addr(m)?
                 .ok_or(ConanGroupError::NotFound)?;
+            if dbpeer.id == 1 {
+                continue;
+            }
             if let Some(peer) = peers.get(&dbpeer.id) {
                 peer.command_sender.send(SlaveCmd::Msg(Msg::GroupMessage(
                     target_group.group_id().to_vec(),
@@ -241,6 +246,12 @@ impl CommandHandler {
         else {
             return Err(ConanError::NotFound.into());
         };
+        let pndng_cmt = grp.pending_commit();
+        if pndng_cmt.is_none() {
+            println!("no staged commit in group");
+        } else {
+            println!("staged commit in group");
+        }
         if let Err(e) = grp.merge_pending_commit(&self.provider) {
             eprintln!("Error while merging commit: {e:?}");
         }
@@ -313,8 +324,8 @@ impl CommandHandler {
         let Some(group) = groups.get_mut(&dbgroup.id) else {
             return Err(ConanError::NotFound.into());
         };
-        let message = message.try_into_protocol_message().unwrap();
-        let processed_message = group.process_message(&self.provider, message).unwrap();
+        let message = message.try_into_protocol_message()?;
+        let processed_message = group.process_message(&self.provider, message)?;
         let content = processed_message.into_content();
         match content {
             ProcessedMessageContent::ApplicationMessage(mess) => {

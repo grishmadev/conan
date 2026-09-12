@@ -4,6 +4,8 @@ use chacha20poly1305::{
 };
 use std::error::Error;
 
+/// Used to encrypt a message with given key
+/// # Errors
 pub fn direct_encrypt(key: &Key<ChaCha20Poly1305>, data: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
     let cipher = ChaCha20Poly1305::new(key);
     let nonce = Nonce::generate();
@@ -16,6 +18,8 @@ pub fn direct_encrypt(key: &Key<ChaCha20Poly1305>, data: &[u8]) -> Result<Vec<u8
     Ok(buffer)
 }
 
+/// Used to decrypt a message with given key
+/// # Errors
 pub fn direct_decrypt(key: &Key<ChaCha20Poly1305>, data: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
     let cipher = ChaCha20Poly1305::new(key);
     let (nonce_bytes, cipher_text) = data.split_at(12);

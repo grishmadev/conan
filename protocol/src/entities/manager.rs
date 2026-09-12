@@ -171,11 +171,8 @@ impl Manager {
         let ressen = self.worker_sender.clone();
         tokio::spawn(async move {
             while let Ok(msg) = recv.recv() {
-                match msg {
-                    Internal::IPCCmd(cmd) => {
-                        _ = ressen.send(cmd);
-                    }
-                    _ => {}
+                if let Internal::IPCCmd(cmd) = msg {
+                    _ = ressen.send(cmd);
                 }
             }
         });
@@ -260,7 +257,7 @@ impl Manager {
     /// Connects to Peer's Tor Address as a dialer (Seeking connection)
     /// # Errors
     /// # Panics
-    pub fn connect_as_dialer(&mut self, addr: String, port: u16) -> Result<(), Box<dyn Error>> {
+    pub fn connect_as_dialer(&mut self, addr: String) -> Result<(), Box<dyn Error>> {
         let tor_client = Arc::clone(&self.tor_client);
         let msg_sender = self.msg_sender.clone();
         let mut dbconn = Connection::open(&self.config.db_path)?;
@@ -298,7 +295,6 @@ impl Manager {
                 peers,
                 service,
                 addr,
-                port,
             )
             .await
             .unwrap();
@@ -306,6 +302,7 @@ impl Manager {
         Ok(())
     }
 
+    /// # Errors
     pub fn get_mls_group_from_idx(&self, idx: u16) -> Result<MlsGroup, Box<dyn Error>> {
         let dbgrp = self.dbconn.get_group_by_idx(idx)?;
         let storage = SqliteStorageProvider::<JsonCodec, _>::new(&self.dbconn);
@@ -369,7 +366,6 @@ impl Manager {
                 peers,
                 groups,
                 invitation_memory,
-                dbconn,
                 msg_sen,
                 expanded_key,
                 provider,
@@ -449,7 +445,6 @@ impl Manager {
                     response_sender,
                     peers,
                     peer.address,
-                    80,
                 )
                 .await
             });
@@ -487,6 +482,8 @@ impl Manager {
         Ok(())
     }
 
+    /// # Errors
+    /// # Panics
     pub fn send_msg(&self, grp: &mut MlsGroup, text: &str) -> Result<(), Box<dyn Error>> {
         let (signer, _, _) = MlsGroup::signer_from_expanded_key(&self.identity_key);
         let msg = grp.create_message(&self.provider, &signer, text.as_bytes())?;

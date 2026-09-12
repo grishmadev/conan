@@ -9,18 +9,18 @@ pub enum ConanNotif {
 impl ConanNotif {
     /// Used to push notifications to D-Bus
     /// # Errors
-    pub async fn notify_async(&self) -> Result<(), Box<dyn Error>> {
+    pub async fn notify_async(self) -> Result<(), Box<dyn Error>> {
         match self {
             ConanNotif::Text(name, msg) => {
                 let mut notif = notify_rust::Notification::new();
-                notif.body = msg.into();
-                notif.summary = name.into();
+                notif.body = msg;
+                notif.summary = name;
                 let notif = notif.finalize();
                 notif.show_async().await?;
             }
             ConanNotif::Sys(msg) => {
                 let mut notif = notify_rust::Notification::new();
-                notif.body = msg.clone();
+                notif.body = msg;
                 notif.appname = "Conan".to_string();
                 let notif = notif.finalize();
                 notif.show_async().await?;
@@ -28,18 +28,19 @@ impl ConanNotif {
         }
         Ok(())
     }
-    pub fn notify(&self) -> Result<(), Box<dyn Error>> {
+    /// # Errors
+    pub fn notify(self) -> Result<(), Box<dyn Error>> {
         match self {
             ConanNotif::Text(name, msg) => {
                 let mut notif = notify_rust::Notification::new();
-                notif.body = msg.into();
-                notif.summary = name.into();
+                notif.body = msg;
+                notif.summary = name;
                 let notif = notif.finalize();
                 notif.show()?;
             }
             ConanNotif::Sys(msg) => {
                 let mut notif = notify_rust::Notification::new();
-                notif.body = msg.clone();
+                notif.body = msg;
                 notif.appname = "Conan".to_string();
                 let notif = notif.finalize();
                 notif.show()?;

@@ -64,7 +64,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         msg_sender.send(res)?;
                     } else {
                         let dbpeer = manager.dbconn.get_peer_from_id(peer_id)?.unwrap();
-                        if let Err(e) = manager.connect_as_dialer(dbpeer.address, 80) {
+                        if let Err(e) = manager.connect_as_dialer(dbpeer.address) {
                             return Err(format!("Cannot connect as Dialer:\n{e}").into());
                         }
                         msg_sender.send(IPCRes::Connected(peer_id, false))?;

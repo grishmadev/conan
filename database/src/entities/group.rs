@@ -25,11 +25,17 @@ impl DBGroup {
 }
 
 pub trait ConnectionGroup {
+    /// # Errors
     fn list_groups(&self) -> Result<Vec<DBGroup>, rusqlite::Error>;
+    /// # Errors
     fn insert_group(&self, group: DBGroup) -> Result<DBGroup, rusqlite::Error>;
+    /// # Errors
     fn delete_group(&self, group_id: u16) -> Result<(), rusqlite::Error>;
+    /// # Errors
     fn rename_group(&self, group_id: u16, name: String) -> Result<DBGroup, rusqlite::Error>;
+    /// # Errors
     fn get_group_by_group_id(&self, group_id: &[u8]) -> Result<DBGroup, rusqlite::Error>;
+    /// # Errors
     fn get_group_by_idx(&self, idx: u16) -> Result<DBGroup, rusqlite::Error>;
 }
 

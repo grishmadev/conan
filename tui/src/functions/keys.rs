@@ -58,6 +58,7 @@ impl Keys for App {
         Ok(())
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn handle_none_screen(&mut self, key: KeyEvent) -> std::io::Result<()> {
         match key.code {
             KeyCode::Tab => {
@@ -78,7 +79,7 @@ impl Keys for App {
                     };
                 }
             }
-            KeyCode::Char('D') | KeyCode::Char('d')
+            KeyCode::Char('D' | 'd')
                 if matches!(self.tab, Tab::Contact)
                     && key.modifiers.contains(KeyModifiers::SHIFT) =>
             {

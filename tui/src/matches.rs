@@ -23,6 +23,7 @@ pub enum PaletteCommand {
 }
 
 impl PaletteCommand {
+    /// # Errors
     pub fn try_from(value: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let mut values = value.split(' ');
         let Some(cmd) = values.next() else {
@@ -30,10 +31,7 @@ impl PaletteCommand {
         };
         let val = match cmd {
             "newgroup" => {
-                let name = match values.next() {
-                    Some(name) => Some(name.to_string()),
-                    None => None,
-                };
+                let name = values.next().map(|g| g.into());
                 PaletteCommand::NewGroup(name)
             }
             "addtogroup" => {

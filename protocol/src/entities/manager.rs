@@ -305,7 +305,8 @@ impl Manager {
     /// # Errors
     pub fn get_mls_group_from_idx(&self, idx: u16) -> Result<MlsGroup, Box<dyn Error>> {
         let dbgrp = self.dbconn.get_group_by_idx(idx)?;
-        let storage = SqliteStorageProvider::<JsonCodec, _>::new(&self.dbconn);
+        let openmls_store = self.dbconn.openmls();
+        let storage = SqliteStorageProvider::<JsonCodec, _>::new(&openmls_store);
         let mlsgrp = MlsGroup::load(&storage, &GroupId::from_slice(&dbgrp.group_id))?
             .ok_or(ConanError::NotFound)?;
         Ok(mlsgrp)
@@ -358,7 +359,7 @@ impl Manager {
         let expanded_key =
             ExpandedKeypair::from_secret_key_bytes(self.identity_key.to_secret_key_bytes())
                 .ok_or(ConanError::NotFound)?;
-        let provider = ConanMlsProvider::new(&dbconn)?;
+        let provider = ConanMlsProvider::new(&dbconn.openmls())?;
         self.server_ready.store(true, Ordering::SeqCst);
         let sndr = self.asst_sndr.clone();
         tokio::spawn(async move {

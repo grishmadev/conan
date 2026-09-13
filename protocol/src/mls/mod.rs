@@ -3,6 +3,7 @@ use crate::{
     comm::enums::{from_bytes, to_bytes},
     config::parse_config,
 };
+use database::ConnectionClone;
 use database::{FromConnection, rusqlite::Connection};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use extras::codec::JsonCodec;
@@ -70,10 +71,11 @@ impl ConanGroup for MlsGroup {
     fn build(expanded_key: &ExpandedKeypair, self_link: &str) -> Result<Self, Box<dyn Error>> {
         let config = parse_config()?;
         let connection = Connection::open(&config.db_path)?;
-        let storage = SqliteStorageProvider::<JsonCodec, _>::from_db(&connection)?;
-        let provider = ConanMlsProvider::<JsonCodec>::new(&connection)?;
+        let openmls_store = connection.openmls();
+        let provider = ConanMlsProvider::<JsonCodec>::new(&openmls_store)?;
+        let openmls_store = SqliteStorageProvider::<JsonCodec, _>::from_db(&openmls_store)?;
         let (signer, _, _) = Self::signer_from_expanded_key(expanded_key);
-        signer.store(&storage)?;
+        signer.store(&openmls_store)?;
 
         let id_bytes = to_bytes(self_link);
         let credential_with_key = CredentialWithKey {

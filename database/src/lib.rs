@@ -14,6 +14,8 @@ pub trait ConnectionClone {
     fn try_clone(&self) -> Result<Connection, Box<dyn std::error::Error>>;
     /// Get `OpenMls` path relevant to current database connection
     fn get_openmls_path(&self) -> String;
+    /// Create an openmls connection from an existing connection
+    fn openmls(&self) -> Self;
 }
 
 impl ConnectionClone for Connection {
@@ -32,6 +34,11 @@ impl ConnectionClone for Connection {
             fs::File::create(&path).unwrap();
         }
         path
+    }
+
+    fn openmls(&self) -> Self {
+        let path = self.get_openmls_path();
+        Connection::open(path).unwrap()
     }
 }
 

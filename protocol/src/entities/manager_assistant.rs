@@ -11,7 +11,7 @@ use crate::{
     msg::{Internal, Msg, SlaveCmd},
 };
 use database::{
-    FromConnection,
+    ConnectionClone, FromConnection,
     entities::{
         chat::{Chat, ChatData},
         group::{ConnectionGroup, DBGroup},
@@ -66,7 +66,7 @@ impl CommandHandler {
     ) -> Self {
         let config = parse_config().unwrap();
         let dbconn = Connection::open(&config.db_path).unwrap();
-        let openmls_store = SqliteStorageProvider::from_db(&dbconn).unwrap();
+        let openmls_store = SqliteStorageProvider::from_db(&dbconn.openmls()).unwrap();
         let (signer, _, _) = MlsGroup::signer_from_expanded_key(&expanded_key);
         Self {
             peers,
@@ -81,6 +81,7 @@ impl CommandHandler {
             asst_sndr: sndr,
         }
     }
+
     pub fn handle_msg_text(&self, idx: u16, text: String) -> Result<(), Box<dyn Error>> {
         let chat = Chat::chat_to_rec(&text, idx);
         for _ in 0..3 {
@@ -112,7 +113,7 @@ impl CommandHandler {
         println!("got convert to group");
         let (signer, _, _) = MlsGroup::signer_from_expanded_key(&self.identity_key);
         let peers = Arc::clone(&self.peers);
-        let provider = ConanMlsProvider::new(&self.dbconn)?;
+        let provider = ConanMlsProvider::new(&self.dbconn.openmls())?;
         let self_link = self.dbconn.get_peer_from_id(1)?.unwrap().address;
         let key_package = MlsGroup::key_package_bundle(&signer, &provider, &self_link)?;
         let Ok(mut peers) = peers.write() else {
@@ -132,10 +133,6 @@ impl CommandHandler {
         println!("got keypackage");
         let key_package = from_bytes::<KeyPackage>(data)?;
         let invitation = self.invitation_memory.write().unwrap();
-
-        for (idx, _) in invitation.iter() {
-            println!("invite: {idx}, peer_idx: {peer_idx}");
-        }
 
         let Some(group_id) = invitation.get(&peer_idx) else {
             return Err(ConanGroupError::NotFound.into());
@@ -162,9 +159,9 @@ impl CommandHandler {
             };
             target_group
         };
-        let keypackages = core::slice::from_ref(&key_package);
+        let key_packages = core::slice::from_ref(&key_package);
         let (commit, welcome, _) =
-            target_group.add_members(&self.provider, &self.signer, keypackages)?;
+            target_group.add_members(&self.provider, &self.signer, key_packages)?;
         let mut peers = self.peers.write().unwrap();
         let Some(peer) = peers.get_mut(&peer_idx) else {
             return Err(ConanError::NotFound.into());
@@ -175,7 +172,13 @@ impl CommandHandler {
         peer.command_sender
             .send(SlaveCmd::Msg(Msg::Welcome(welcome)))?;
 
-        // target_group.merge_pending_commit(&self.provider)?;
+        if target_group.pending_commit().is_some() {
+            println!("group with pending commit");
+        } else {
+            println!("group with no pending commit");
+        }
+
+        target_group.merge_pending_commit(&self.provider)?;
 
         let members = target_group.get_members()?;
         println!("members in keypackage: {members:?}");
@@ -195,7 +198,6 @@ impl CommandHandler {
                 )))?;
             }
         }
-        target_group.merge_pending_commit(&self.provider)?;
         Ok(())
     }
 
@@ -239,22 +241,24 @@ impl CommandHandler {
             let mut invitation = self.invitation_memory.write().unwrap();
             invitation.remove(&peer_idx);
         }
+        let mlsgrp = MlsGroup::load(&self.openmls_store, &GroupId::from_slice(group_id))?
+            .ok_or(ConanError::NotFound)?;
+        let db_group = self.dbconn.get_group_by_group_id(group_id)?;
         let mut groups = self.groups.write().unwrap();
-        let Some((_grp_idx, grp)) = groups
-            .iter_mut()
-            .find(|g| g.1.group_id().as_slice() == group_id)
-        else {
+        groups.insert(db_group.id, mlsgrp);
+        let Some(grp) = groups.get_mut(&db_group.id) else {
             return Err(ConanError::NotFound.into());
         };
-        let pndng_cmt = grp.pending_commit();
-        if pndng_cmt.is_none() {
-            println!("no staged commit in group");
+
+        if let Some(cmt) = grp.pending_commit() {
+            println!("pending cmt: {cmt:?}");
         } else {
-            println!("staged commit in group");
+            println!("no pending commit");
         }
-        if let Err(e) = grp.merge_pending_commit(&self.provider) {
-            eprintln!("Error while merging commit: {e:?}");
-        }
+
+        // if let Err(e) = grp.merge_pending_commit(&self.provider) {
+        //     eprintln!("Error while merging commit: {e:?}");
+        // }
         println!("members: {:#?}", grp.get_members()?);
         // the group is already saved in initializers database
         // so it can be retrieved
@@ -286,7 +290,7 @@ impl CommandHandler {
                 message_ser,
             )))?;
         }
-        ConanNotif::Sys("Group Action Complete.".into()).notify()?;
+        ConanNotif::Sys("Group Exchange Complete.".into()).notify()?;
         Ok(())
     }
 

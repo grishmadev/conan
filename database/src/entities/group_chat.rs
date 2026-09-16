@@ -1,4 +1,4 @@
-use crate::entities::group::ConnectionGroup;
+use crate::entities::{group::ConnectionGroup, tuichat::TuiChat};
 use bincode::{Decode, Encode};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
@@ -30,6 +30,13 @@ pub trait ConnectionGroupChat {
         id: Vec<u8>,
         limit: u8,
     ) -> Result<Vec<GroupChat>, rusqlite::Error>;
+    /// Use this function to get group chats in `TuiChat` format
+    /// # Errors
+    fn get_tuichats_by_group_idx(
+        &self,
+        idx: u16,
+        limit: u8,
+    ) -> Result<Vec<TuiChat>, rusqlite::Error>;
     /// Inserts group chat into database
     /// # Errors
     fn insert_group_chat(&self, chat: GroupChat) -> Result<GroupChat, rusqlite::Error>;
@@ -68,6 +75,33 @@ impl ConnectionGroupChat for Connection {
                 sender_id: r.get(2)?,
                 data: r.get(3)?,
                 time: r.get(4)?,
+            })
+        })?;
+        let mut result = vec![];
+        for r in rows {
+            let r = r?;
+            result.push(r);
+        }
+        Ok(result)
+    }
+
+    fn get_tuichats_by_group_idx(
+        &self,
+        idx: u16,
+        limit: u8,
+    ) -> Result<Vec<TuiChat>, rusqlite::Error> {
+        let mut stmt = self.prepare(
+            "SELECT group_chat.id, peer.name, group_chat.data, group_chat.time FROM group_chat
+            LEFT JOIN peer ON group_chat.sender_id = peer.id
+            WHERE group_id = ?1
+            ORDER BY time DESC LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![idx, limit], |r| {
+            Ok(TuiChat {
+                id: r.get("id")?,
+                sender_name: r.get("name")?,
+                data: r.get("data")?,
+                time: r.get("time")?,
             })
         })?;
         let mut result = vec![];

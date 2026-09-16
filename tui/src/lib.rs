@@ -14,7 +14,7 @@ use conanprotocol::{
     config::ConanConfig,
     msg::Mode,
 };
-use database::entities::{chat::Chat, group::DBGroup, peer::Peer};
+use database::entities::{group::DBGroup, peer::Peer, tuichat::TuiChat};
 use ratatui::{
     Frame, Terminal,
     layout::{Constraint, Direction, HorizontalAlignment, Layout},
@@ -58,7 +58,7 @@ pub struct App {
     /// Current contact
     pub contact_idx: ListState,
     /// All the Chats for the current contact/group
-    pub chats: Vec<Chat>,
+    pub chats: Vec<TuiChat>,
     /// Chat Buffer for writing messages
     pub chat_buf: String,
     /// Chat Scroll Option to scroll texts
@@ -276,7 +276,7 @@ impl App {
                     #[allow(clippy::cast_possible_truncation)]
                     let idx = idx as u16;
                     if cur_cont.id.eq(&idx) {
-                        let new_chat = Chat::chat_to_rec(&text, idx);
+                        let new_chat = TuiChat::build(&text, "They");
                         self.chats.push(new_chat);
                     }
                 }

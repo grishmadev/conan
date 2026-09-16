@@ -37,14 +37,14 @@ impl MainComponents for App {
             .chats
             .iter()
             .map(|c| {
-                let (label, style) = if c.sender_id == 1 {
-                    ("you", Style::new().green())
+                let style = if c.sender_name == "Me".to_string() {
+                    Style::new().green()
                 } else {
-                    ("they", Style::new().cyan())
+                    Style::new().cyan()
                 };
                 let time = &c.time[11..16];
                 let line = Line::from(vec![
-                    Span::styled(format!("{label:>5} "), style),
+                    Span::styled(format!("{:>5} ", c.sender_name), style),
                     Span::styled(format!("{time} "), Style::new().dark_gray()),
                     Span::raw(&c.data),
                 ]);

@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use conanprotocol::{comm::enums::IPCCmd, msg::Mode};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
-use database::entities::chat::Chat;
+use database::entities::{tuichat::TuiChat};
 
 use crate::{
     App,
@@ -236,11 +236,10 @@ impl Keys for App {
                         }
                     }
                     Tab::Chat => {
-                        let text = self.chat_buf.trim();
+                        let text = self.chat_buf.trim().to_string();
                         if text.is_empty() {
                             return Ok(()); // prevent empty messages
                         }
-                        let chat: Chat;
                         if is_peer {
                             let Some(current_peer) = self.contacts.get(idx) else {
                                 eprintln!("Peer not found.");
@@ -248,22 +247,21 @@ impl Keys for App {
                             };
                             let current_peer = current_peer.clone();
                             #[allow(clippy::cast_possible_truncation)]
-                            self.send(IPCCmd::Text(current_peer.id, text.into()))
+                            self.send(IPCCmd::Text(current_peer.id, text.clone()))
                                 .await?;
                             if !current_peer.connected && current_peer.id != 1 {
                                 self.notification =
                                     Some(("Contact not connected.".into(), Instant::now()));
                                 return Ok(());
                             }
-                            chat = Chat::chat_to_send(self.chat_buf.trim(), current_peer.id);
                         } else {
-                            chat = Chat::chat_to_send(text, idx as u16);
                             let Some(grp) = self.groups.get(idx) else {
                                 return Ok(());
                             };
                             #[allow(clippy::cast_possible_truncation)]
-                            self.send(IPCCmd::GroupText(grp.id, text.into())).await?;
+                            self.send(IPCCmd::GroupText(grp.id, text.clone())).await?;
                         }
+                        let chat = TuiChat::build(&text, "Me");
                         self.chats.push(chat);
                         self.chat_buf = String::new();
                         if let Mode::Insert { ref mut cursor_pos } = self.mode {

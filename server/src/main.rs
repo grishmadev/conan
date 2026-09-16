@@ -135,7 +135,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     peer_id,
                     msg_amount,
                 } => {
-                    let chats = manager.dbconn.list_chat_from(peer_id, msg_amount)?;
+                    let chats = manager.dbconn.list_tuichat_from(peer_id, msg_amount)?;
                     manager
                         .msg_sender
                         .send(IPCRes::ChatList { peer_id, chats })?;
@@ -201,22 +201,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 } => {
                     let chats = manager
                         .dbconn
-                        .get_chats_by_group_idx(group_idx, msg_amount)?;
-                    let mut res = vec![];
-                    for c in chats {
-                        let chat = Chat {
-                            id: c.id,
-                            sender_id: c.sender_id,
-                            receiver_id: 1,
-                            data: c.data,
-                            time: c.time,
-                        };
-                        res.push(chat);
-                    }
-                    manager.msg_sender.send(IPCRes::GroupChatList {
-                        group_idx,
-                        chats: res,
-                    })?;
+                        .get_tuichats_by_group_idx(group_idx, msg_amount)?;
+                    manager
+                        .msg_sender
+                        .send(IPCRes::GroupChatList { group_idx, chats })?;
                 }
 
                 IPCCmd::GroupText(grp_idx, text) => {

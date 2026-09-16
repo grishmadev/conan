@@ -374,7 +374,9 @@ impl CommandHandler {
             for (idx, grp) in &group_vec {
                 let mut members = grp.get_members()?;
                 for idx in 0..members.len() {
-                    let m = &members[idx];
+                    let Some(m) = &members.get(idx) else {
+                        continue;
+                    };
                     let peer = self.dbconn.get_peer_from_addr(m)?.unwrap();
                     if peers.get(&peer.id).is_some() {
                         members.remove(idx);

@@ -3,7 +3,7 @@ use std::error::Error;
 use bincode::{Decode, Encode, config};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use database::entities::{chat::Chat, group::DBGroup, peer::Peer};
+use database::entities::{group::DBGroup, peer::Peer, tuichat::TuiChat};
 
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -77,7 +77,7 @@ pub enum IPCRes {
         /// Peer id
         peer_id: u16,
         /// List of Chats
-        chats: Vec<Chat>,
+        chats: Vec<TuiChat>,
     },
     /// Response for [`IPCCmd::Tick`]
     Tock,
@@ -94,7 +94,7 @@ pub enum IPCRes {
         /// Group index
         group_idx: u16,
         /// List of chats
-        chats: Vec<Chat>,
+        chats: Vec<TuiChat>,
     },
     /// Response for Group Renamed (group id)
     RenamedGroup(u16),

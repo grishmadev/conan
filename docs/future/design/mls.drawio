@@ -1,0 +1,88 @@
+<mxfile host="Electron">
+  <diagram name="Page-1" id="Uo08SzL8Rycqd7M07o4z">
+    <mxGraphModel dx="1809" dy="1332" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="s6637Vr-pGJpj3F77RQD-1" parent="1" style="text;html=1;whiteSpace=wrap;overflow=hidden;rounded=0;" value="&lt;h1 style=&quot;margin-top: 0px;&quot;&gt;&lt;font face=&quot;Datatype UltraCondensed&quot; style=&quot;background-color: light-dark(rgb(0, 0, 0), rgb(218, 41, 94));&quot;&gt;Group Connection Workflow&lt;/font&gt;&lt;/h1&gt;" vertex="1">
+          <mxGeometry height="40" width="290" x="-200" y="-250" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-2" connectable="0" parent="1" style="group" value="" vertex="1">
+          <mxGeometry height="390" width="1260" x="-129" y="-140" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-3" parent="s6637Vr-pGJpj3F77RQD-2" style="shape=process;whiteSpace=wrap;html=1;backgroundOutline=1;rounded=1;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=12;fontColor=default;fillColor=none;gradientColor=none;size=0.34285714285714286;sketch=1;curveFitting=1;jiggle=2;" value="" vertex="1">
+          <mxGeometry height="390" width="700" x="260" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-4" parent="s6637Vr-pGJpj3F77RQD-2" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontFamily=Helvetica;fontSize=12;fontColor=default;fontStyle=1" value="A (Initializer)" vertex="1">
+          <mxGeometry height="30" width="100" x="320" y="30" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-5" parent="s6637Vr-pGJpj3F77RQD-2" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontFamily=Helvetica;fontSize=12;fontColor=default;fontStyle=1" value="B (Receiver)" vertex="1">
+          <mxGeometry height="30" width="110" x="805" y="30" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-6" edge="1" parent="s6637Vr-pGJpj3F77RQD-2" source="s6637Vr-pGJpj3F77RQD-7" style="edgeStyle=orthogonalEdgeStyle;shape=connector;curved=1;rounded=0;sketch=1;jiggle=2;curveFitting=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=12;fontColor=default;labelBackgroundColor=default;endArrow=classic;flowAnimation=0;" target="s6637Vr-pGJpj3F77RQD-20" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-7" parent="s6637Vr-pGJpj3F77RQD-2" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontFamily=Helvetica;fontSize=12;fontColor=default;" value="Sends a join group messasge" vertex="1">
+          <mxGeometry height="50" width="140" x="300" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-8" edge="1" parent="s6637Vr-pGJpj3F77RQD-2" source="s6637Vr-pGJpj3F77RQD-10" style="edgeStyle=orthogonalEdgeStyle;shape=connector;curved=1;rounded=0;sketch=1;jiggle=2;curveFitting=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=12;fontColor=default;labelBackgroundColor=default;endArrow=classic;flowAnimation=0;" target="s6637Vr-pGJpj3F77RQD-14">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-10" parent="s6637Vr-pGJpj3F77RQD-2" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontFamily=Helvetica;fontSize=12;fontColor=default;" value="Creates a KeyPackage and sends to A" vertex="1">
+          <mxGeometry height="50" width="140" x="790" y="130" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-11" edge="1" parent="s6637Vr-pGJpj3F77RQD-2" source="s6637Vr-pGJpj3F77RQD-7" style="shape=connector;rounded=0;sketch=1;jiggle=2;curveFitting=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.071;entryY=0.493;entryDx=0;entryDy=0;entryPerimeter=0;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=12;fontColor=default;labelBackgroundColor=default;endArrow=classic;flowAnimation=0;edgeStyle=orthogonalEdgeStyle;curved=1;" target="s6637Vr-pGJpj3F77RQD-10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-12" edge="1" parent="s6637Vr-pGJpj3F77RQD-2" source="s6637Vr-pGJpj3F77RQD-14" style="edgeStyle=orthogonalEdgeStyle;shape=connector;curved=1;rounded=0;sketch=1;jiggle=2;curveFitting=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=12;fontColor=default;labelBackgroundColor=default;endArrow=classic;flowAnimation=0;" target="s6637Vr-pGJpj3F77RQD-17">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-13" edge="1" parent="s6637Vr-pGJpj3F77RQD-2" source="s6637Vr-pGJpj3F77RQD-14" style="edgeStyle=orthogonalEdgeStyle;shape=connector;curved=1;rounded=0;sketch=1;jiggle=2;curveFitting=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=12;fontColor=default;labelBackgroundColor=default;endArrow=classic;flowAnimation=0;" target="s6637Vr-pGJpj3F77RQD-22">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-14" parent="s6637Vr-pGJpj3F77RQD-2" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontFamily=Helvetica;fontSize=12;fontColor=default;" value="Parses KeyPackage to its target group and sends a Welcome Message to B along with metadata like group admin" vertex="1">
+          <mxGeometry height="90" width="160" x="300" y="180" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-15" edge="1" parent="s6637Vr-pGJpj3F77RQD-2" source="s6637Vr-pGJpj3F77RQD-17" style="edgeStyle=orthogonalEdgeStyle;shape=connector;curved=1;rounded=0;sketch=1;jiggle=2;curveFitting=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=12;fontColor=default;labelBackgroundColor=default;endArrow=classic;flowAnimation=0;" target="s6637Vr-pGJpj3F77RQD-19">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-16" edge="1" parent="s6637Vr-pGJpj3F77RQD-2" source="s6637Vr-pGJpj3F77RQD-17" style="edgeStyle=orthogonalEdgeStyle;shape=connector;curved=1;rounded=0;sketch=1;jiggle=2;curveFitting=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=12;fontColor=default;labelBackgroundColor=default;endArrow=classic;flowAnimation=0;" target="s6637Vr-pGJpj3F77RQD-23">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-17" parent="s6637Vr-pGJpj3F77RQD-2" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontFamily=Helvetica;fontSize=12;fontColor=default;" value="Parses the Welcome Package and joins the group.&lt;div&gt;Sends a Verified Signal&lt;/div&gt;" vertex="1">
+          <mxGeometry height="70" width="170" x="770" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-18" edge="1" parent="s6637Vr-pGJpj3F77RQD-2" source="s6637Vr-pGJpj3F77RQD-19" style="edgeStyle=orthogonalEdgeStyle;shape=connector;curved=1;rounded=0;sketch=1;jiggle=2;curveFitting=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=12;fontColor=default;labelBackgroundColor=default;endArrow=classic;flowAnimation=0;" target="s6637Vr-pGJpj3F77RQD-24">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-19" parent="s6637Vr-pGJpj3F77RQD-2" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontFamily=Helvetica;fontSize=12;fontColor=default;" value="Receives a verified message and commits changes" vertex="1">
+          <mxGeometry height="70" width="140" x="300" y="290" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-20" parent="s6637Vr-pGJpj3F77RQD-2" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontFamily=Helvetica;fontSize=12;fontColor=default;" value="Loads group from Database if not already in memo&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;ry.&lt;/span&gt;&lt;div&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;Sends a JoinGroup Message&lt;/span&gt;&lt;/div&gt;" vertex="1">
+          <mxGeometry height="70" width="199" y="10" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-22" parent="s6637Vr-pGJpj3F77RQD-2" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontFamily=Helvetica;fontSize=12;fontColor=default;" value="Adds B as its group member" vertex="1">
+          <mxGeometry height="70" width="140" x="10" y="170" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-23" parent="s6637Vr-pGJpj3F77RQD-2" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontFamily=Helvetica;fontSize=12;fontColor=default;" value="Saves Group to Database&lt;div&gt;and loads to memory&lt;/div&gt;" vertex="1">
+          <mxGeometry height="70" width="160" x="1090" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-24" parent="s6637Vr-pGJpj3F77RQD-2" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontFamily=Helvetica;fontSize=12;fontColor=default;" value="Commits changes and&lt;div&gt;fans out to all members&lt;/div&gt;" vertex="1">
+          <mxGeometry height="70" width="170" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-25" parent="1" style="text;html=1;whiteSpace=wrap;overflow=hidden;rounded=0;" value="&lt;h1 style=&quot;margin-top: 0px;&quot;&gt;&lt;font face=&quot;Datatype UltraCondensed&quot; style=&quot;background-color: light-dark(rgb(0, 0, 0), rgb(218, 41, 94));&quot;&gt;Admin Selection Workflow&lt;/font&gt;&lt;/h1&gt;" vertex="1">
+          <mxGeometry height="40" width="280" x="-180" y="280" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-29" parent="1" style="text;html=1;whiteSpace=wrap;overflow=hidden;rounded=0;" value="&lt;h1 style=&quot;margin-top: 0px;&quot;&gt;Case I:&lt;/h1&gt;&lt;h2&gt;Admin leaves by choice&lt;/h2&gt;&lt;p&gt;Admin leaves group by choice. The UI forces them to select the next admin.&lt;/p&gt;" vertex="1">
+          <mxGeometry height="140" width="260" x="-140" y="420" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-31" parent="1" style="text;html=1;whiteSpace=wrap;overflow=hidden;rounded=0;" value="&lt;h1 style=&quot;margin-top: 0px;&quot;&gt;Case II:&lt;/h1&gt;&lt;h2&gt;Admin is inactive for a long time&lt;/h2&gt;&lt;p&gt;Admin is inactive for multiple epochs.&lt;/p&gt;&lt;p&gt;Nothing happens if there are multiple admins. Else, the oldest member (one with the smallest epoch) becomes the admin.&lt;/p&gt;" vertex="1">
+          <mxGeometry height="180" width="290" x="300" y="410" as="geometry" />
+        </mxCell>
+        <mxCell id="s6637Vr-pGJpj3F77RQD-33" parent="1" style="text;html=1;whiteSpace=wrap;overflow=hidden;rounded=0;" value="&lt;h1 style=&quot;margin-top: 0px;&quot;&gt;&lt;span style=&quot;color: light-dark(rgb(0, 0, 0), rgb(223, 255, 20));&quot;&gt;Note&lt;/span&gt;&lt;/h1&gt;&lt;div&gt;&lt;span style=&quot;color: light-dark(rgb(0, 0, 0), rgb(223, 255, 20));&quot;&gt;A Group with members N &amp;gt; 3 will always have 2 or more admins&lt;/span&gt;&lt;/div&gt;" vertex="1">
+          <mxGeometry height="80" width="180" x="790" y="460" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

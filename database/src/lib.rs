@@ -15,6 +15,7 @@ pub trait ConnectionClone {
     /// Get `OpenMls` path relevant to current database connection
     fn get_openmls_path(&self) -> String;
     /// Create an openmls connection from an existing connection
+    #[must_use]
     fn openmls(&self) -> Self;
 }
 

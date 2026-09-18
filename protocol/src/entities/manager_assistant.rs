@@ -159,9 +159,13 @@ impl CommandHandler {
             };
             target_group
         };
-        let key_packages = core::slice::from_ref(&key_package);
-        let (commit, welcome, _) =
-            target_group.add_members(&self.provider, &self.signer, key_packages)?;
+        let self_info = self.dbconn.get_peer_from_id(1)?.unwrap();
+        let (commit, welcome) = target_group.add_member(
+            &self_info.address,
+            &self.provider,
+            &self.signer,
+            &key_package,
+        )?;
         let mut peers = self.peers.write().unwrap();
         let Some(peer) = peers.get_mut(&peer_idx) else {
             return Err(ConanError::NotFound.into());

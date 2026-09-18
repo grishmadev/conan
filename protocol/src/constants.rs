@@ -23,3 +23,6 @@ pub const CONFIG_PATH: &str = "/.config/conan/conan.toml";
 
 /// Database Path
 pub const DATABASE_PATH: &str = "/.conan/database";
+
+/// `MlsGroup` Admin List Data
+pub const MLS_ADMIN_ID: u16 = 1;

@@ -1,12 +1,16 @@
+use crate::comm::error::ConanError;
+use crate::constants::MLS_ADMIN_ID;
 use crate::extras::mls_provider::ConanMlsProvider;
 use crate::{
     comm::enums::{from_bytes, to_bytes},
     config::parse_config,
 };
 use database::ConnectionClone;
+use database::entities::peer::Peer;
 use database::{FromConnection, rusqlite::Connection};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use extras::codec::JsonCodec;
+use openmls::prelude::{Extension, Extensions, MlsMessageOut, UnknownExtension};
 use openmls::{
     group::{MlsGroup, MlsGroupCreateConfigBuilder, MlsGroupJoinConfig, StagedWelcome},
     prelude::{
@@ -29,6 +33,30 @@ pub trait ConanGroup {
     /// Builds `MlsGroup`
     /// # Errors
     fn build(expanded_key: &ExpandedKeypair, self_link: &str) -> Result<MlsGroup, Box<dyn Error>>;
+    /// Adds member if called by an admin
+    /// # Errors
+    fn add_member(
+        &mut self,
+        self_link: &str,
+        provider: &ConanMlsProvider,
+        signer: &SignatureKeyPair,
+        key_package: &KeyPackage,
+    ) -> Result<(MlsMessageOut, MlsMessageOut), Box<dyn Error>>;
+    /// Removes member if called by an admin
+    /// # Errors
+    fn remove_member(
+        &mut self,
+        self_link: &str,
+        peer: &Peer,
+        provider: &ConanMlsProvider,
+        signer: &SignatureKeyPair,
+    ) -> Result<MlsMessageOut, Box<dyn Error>>;
+    /// List Admins of this group
+    /// # Errors
+    fn admins(&self) -> Result<Vec<String>, Box<dyn Error>>;
+    /// Returns whether a peer is admin or not
+    /// # Errors
+    fn is_admin(&self, address: &str) -> Result<bool, Box<dyn Error>>;
     /// Retrieves the Key Package Bundle
     /// # Errors
     fn key_package_bundle(
@@ -83,8 +111,16 @@ impl ConanGroup for MlsGroup {
             signature_key: signer.public().into(),
         };
 
+        let admins = vec![self_link.to_string()];
+        let admins_ser = to_bytes(&admins);
+        let mut extensions = Extensions::empty();
+        extensions.add(Extension::Unknown(
+            MLS_ADMIN_ID,
+            UnknownExtension(admins_ser),
+        ))?;
         let grp_config = MlsGroupCreateConfigBuilder::default()
             .use_ratchet_tree_extension(true)
+            .with_group_context_extensions(extensions)
             .build();
 
         let group = MlsGroup::new(&provider, &signer, &grp_config, credential_with_key)?;
@@ -92,22 +128,59 @@ impl ConanGroup for MlsGroup {
         Ok(group)
     }
 
-    // Removes members from the group
-    // Returns Commit State and Optional Group Info
-    // # Errors
-    // TODO: add proper settings to allow other members to decide on kicking a member
-    //
-    // pub fn remove_members(
-    //     &mut self,
-    //     idx: u32,
-    //     provider: &ConanMlsProvider,
-    // ) -> Result<(MlsMessageOut, Option<GroupInfo>), Box<dyn Error>> {
-    //     let res = self
-    //         .group
-    //         .remove_members(provider, &self.signer, &[LeafNodeIndex::new(idx)])?;
-    //     self.group.merge_pending_commit(provider)?;
-    //     Ok((res.0, res.2))
-    // }
+    fn add_member(
+        &mut self,
+        self_link: &str,
+        provider: &ConanMlsProvider,
+        signer: &SignatureKeyPair,
+        key_package: &KeyPackage,
+    ) -> Result<(MlsMessageOut, MlsMessageOut), Box<dyn Error>> {
+        if !self.is_admin(self_link)? {
+            return Err(ConanGroupError::NotAdmin.into());
+        }
+        let key_packages = core::slice::from_ref(key_package);
+        let (commit, welcome, _) = self.add_members(provider, signer, key_packages)?;
+        Ok((commit, welcome))
+    }
+
+    /// Removes members from the group
+    /// Returns Commit State and Optional Group Info
+    /// # Errors
+    fn remove_member(
+        &mut self,
+        self_link: &str,
+        peer: &Peer,
+        provider: &ConanMlsProvider,
+        signer: &SignatureKeyPair,
+    ) -> Result<MlsMessageOut, Box<dyn Error>> {
+        if self.is_admin(self_link)? {
+            return Err(ConanGroupError::NotAdmin.into());
+        }
+        let id_bytes = to_bytes(peer.address.clone());
+        let leaf_idx = self
+            .member_leaf_index(&BasicCredential::new(id_bytes).into())
+            .ok_or(ConanError::NotFound)?;
+        let leaf_idx_slice = std::slice::from_ref(&leaf_idx);
+        let (commit, _, _) = self.remove_members(provider, signer, leaf_idx_slice)?;
+        self.merge_pending_commit(provider)?;
+        Ok(commit)
+    }
+
+    fn admins(&self) -> Result<Vec<String>, Box<dyn Error>> {
+        let Some(UnknownExtension(data)) = self.extensions().unknown(MLS_ADMIN_ID) else {
+            return Err(ConanGroupError::AdminsNotFound.into());
+        };
+        let data_des = serde_json::from_slice::<Vec<String>>(data)?;
+        Ok(data_des)
+    }
+
+    fn is_admin(&self, address: &str) -> Result<bool, Box<dyn Error>> {
+        let admins = self.admins()?;
+        if !admins.contains(&address.into()) {
+            return Ok(false);
+        }
+        Ok(true)
+    }
 
     /// Returns `KeyPackageBundle` from Group
     /// # Errors
@@ -157,6 +230,10 @@ impl ConanGroup for MlsGroup {
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum ConanGroupError {
+    #[error("Admin Data not found")]
+    AdminsNotFound,
+    #[error("Not Admin")]
+    NotAdmin,
     #[error("Group not found")]
     NotFound,
     #[error("Could not extract group info.")]

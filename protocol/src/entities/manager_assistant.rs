@@ -378,7 +378,7 @@ impl CommandHandler {
                         continue;
                     };
                     let peer = self.dbconn.get_peer_from_addr(m)?.unwrap();
-                    if peers.get(&peer.id).is_some() {
+                    if peers.contains_key(&peer.id) {
                         members.remove(idx);
                     }
                 }

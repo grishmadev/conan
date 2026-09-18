@@ -316,7 +316,6 @@ impl Manager {
     pub fn make_peer_join_group(&self, peer_id: u16, group_idx: u16) -> Result<(), Box<dyn Error>> {
         println!("joining peer: {peer_id}, group idx: {group_idx}");
         #[allow(clippy::cast_possible_truncation)]
-        #[allow(clippy::cast_possible_truncation)]
         let peers = Arc::clone(&self.peers);
         let Ok(mut peers) = peers.write() else {
             return Err(ConanError::ParseError.into());

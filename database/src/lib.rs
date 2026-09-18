@@ -138,7 +138,7 @@ pub fn setup_db(db_path: &str) -> Result<(), Box<dyn std::error::Error>> {
 
     run_is_friend_migration(&conn)?;
 
-    let mut storage = SqliteStorageProvider::<JsonCodec, _>::from_db(&conn)?;
+    let mut storage = SqliteStorageProvider::<JsonCodec, _>::from_db(&conn.openmls())?;
     storage.run_migrations()?;
     Ok(())
 }

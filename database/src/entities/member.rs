@@ -1,5 +1,3 @@
-use std::error::Error;
-
 use rusqlite::{Connection, params};
 
 use crate::entities::{
@@ -15,22 +13,22 @@ pub struct GroupToPeer {
 
 pub trait GroupMember {
     /// # Errors
-    fn list_members(&self, id: u16) -> Result<Vec<Peer>, Box<dyn Error>>;
+    fn list_members(&self, id: u16) -> Result<Vec<Peer>, rusqlite::Error>;
     /// # Errors
     fn insert_member(
         &self,
         group_idx: u16,
         member: Peer,
         known: bool,
-    ) -> Result<Peer, Box<dyn Error>>;
+    ) -> Result<Peer, rusqlite::Error>;
     /// # Errors
-    fn list_groups_with_member(&self, peer_id: u16) -> Result<Vec<DBGroup>, Box<dyn Error>>;
+    fn list_groups_with_member(&self, peer_id: u16) -> Result<Vec<DBGroup>, rusqlite::Error>;
     /// # Errors
-    fn remove_member(&self, peer_id: u16, group_id: u16) -> Result<(), Box<dyn Error>>;
+    fn remove_member(&self, peer_id: u16, group_id: u16) -> Result<(), rusqlite::Error>;
 }
 
 impl GroupMember for Connection {
-    fn list_members(&self, group_id: u16) -> Result<Vec<Peer>, Box<dyn Error>> {
+    fn list_members(&self, group_id: u16) -> Result<Vec<Peer>, rusqlite::Error> {
         let mut stmt = self.prepare("SELECT * FROM group_to_peer WHERE group_id = ?1")?;
         let rows = stmt.query_map([group_id], |r| {
             Ok(GroupToPeer {
@@ -51,7 +49,7 @@ impl GroupMember for Connection {
         Ok(result)
     }
 
-    fn list_groups_with_member(&self, peer_id: u16) -> Result<Vec<DBGroup>, Box<dyn Error>> {
+    fn list_groups_with_member(&self, peer_id: u16) -> Result<Vec<DBGroup>, rusqlite::Error> {
         let mut stmt = self.prepare("SELECT * FROM group_to_peer WHERE peer_id = ?1")?;
         let rows = stmt.query_map([peer_id], |r| r.get::<_, u16>("group_id"))?;
         let mut result = vec![];
@@ -68,7 +66,7 @@ impl GroupMember for Connection {
         group_idx: u16,
         mut member: Peer,
         known: bool,
-    ) -> Result<Peer, Box<dyn Error>> {
+    ) -> Result<Peer, rusqlite::Error> {
         if !known {
             member = self.insert_peer(member)?;
         }
@@ -78,11 +76,11 @@ impl GroupMember for Connection {
         if res == 1 {
             Ok(member)
         } else {
-            Err("Could not insert to Database".into())
+            Err(rusqlite::Error::QueryReturnedNoRows)
         }
     }
 
-    fn remove_member(&self, peer_id: u16, group_id: u16) -> Result<(), Box<dyn Error>> {
+    fn remove_member(&self, peer_id: u16, group_id: u16) -> Result<(), rusqlite::Error> {
         let mut stmt =
             self.prepare("DELETE FROM group_to_peer WHERE peer_id = ?1 AND group_id = ?2")?;
         stmt.execute(params![peer_id, group_id])?;

@@ -141,20 +141,6 @@ impl ChatData for Connection {
             OR (chat.receiver_id = ?1 AND chat.sender_id = 1)
             ORDER BY chat.time DESC LIMIT ?2"
         };
-        // let stmt = "SELECT
-        //     chat.id,
-        //     CASE
-        //         WHEN chat.sender_id = 1 THEN 'Me'
-        //         ELSE COALESCE(peer.name, 'Unknown')
-        //     END AS name,
-        //     chat.data,
-        //     chat.time
-        // FROM chat
-        // LEFT JOIN peer ON chat.sender_id = peer.id
-        // WHERE (chat.sender_id = 1 AND chat.receiver_id = ?1)
-        // OR (chat.sender_id = ?1 AND chat.receiver_id = 1)
-        // ORDER BY chat.time DESC
-        // LIMIT ?2";
         let mut stmt = self.prepare(stmt)?;
         let rows = stmt.query_map((peer_id, limit), |r| {
             Ok(TuiChat {

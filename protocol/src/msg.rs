@@ -1,5 +1,5 @@
 use bincode::config;
-use openmls::{group::StagedCommit, prelude::Welcome};
+use openmls::prelude::Welcome;
 use serde::{Deserialize, Serialize};
 
 use crate::comm::enums::{IPCCmd, IPCRes};

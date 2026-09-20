@@ -13,7 +13,7 @@ use extras::{codec::JsonCodec, generate_name};
 use futures::{StreamExt, stream::BoxStream};
 use openmls::{
     group::{GroupId, MlsGroup},
-    prelude::tls_codec::Serialize,
+    prelude::{MlsMessageOut, tls_codec::Serialize},
 };
 use openmls_sqlite_storage::SqliteStorageProvider;
 use safelog::DisplayRedacted;
@@ -484,13 +484,12 @@ impl Manager {
 
     /// # Errors
     /// # Panics
-    pub fn send_msg(&self, grp: &mut MlsGroup, text: &str) -> Result<(), Box<dyn Error>> {
-        let (signer, _, _) = MlsGroup::signer_from_expanded_key(&self.identity_key);
-        let msg = grp.create_message(&self.provider, &signer, text.as_bytes())?;
+    fn send_msg(&self, grp: &mut MlsGroup, msg: &Msg) -> Result<(), Box<dyn Error>> {
         let peers = self.peers.read().unwrap();
         let members = grp.get_members()?;
         println!("list members: {members:#?}");
         for m in &members {
+            let msg = msg.clone();
             // fanning out to all active members
             let Some(peer) = self.dbconn.get_peer_from_addr(m)? else {
                 println!("Could not get targetted member.");
@@ -498,17 +497,28 @@ impl Manager {
             };
             if let Some(peer) = peers.get(&peer.id) {
                 println!("sending to group");
-                peer.command_sender.send(SlaveCmd::Msg(Msg::GroupMessage(
-                    grp.group_id().to_vec(),
-                    msg.tls_serialize_detached()?,
-                )))?;
+                peer.command_sender.send(SlaveCmd::Msg(msg))?;
             } else {
                 println!("Targetted Peer not found.");
             }
         }
-        let dbgrp = self
-            .dbconn
-            .get_group_by_group_id(&grp.group_id().to_vec())?;
+        Ok(())
+    }
+
+    fn send_commit(&self, grp: &mut MlsGroup, commit: MlsMessageOut) -> Result<(), Box<dyn Error>> {
+        let msg = Msg::GroupCommit(grp.group_id().to_vec(), commit.tls_serialize_detached()?);
+        self.send_msg(grp, &msg)?;
+        Ok(())
+    }
+
+    pub fn send_text(&self, grp: &mut MlsGroup, text: &str) -> Result<(), Box<dyn Error>> {
+        let (signer, _, _) = MlsGroup::signer_from_expanded_key(&self.identity_key);
+        let msg = grp.create_message(&self.provider, &signer, text.as_bytes())?;
+        let msg_des = msg.tls_serialize_detached()?;
+        let group_id = grp.group_id().to_vec();
+        let msg = Msg::GroupMessage(group_id.clone(), msg_des);
+        self.send_msg(grp, &msg)?;
+        let dbgrp = self.dbconn.get_group_by_group_id(&group_id)?;
         let chat = GroupChat {
             id: 0,
             group_id: dbgrp.id,
@@ -517,6 +527,39 @@ impl Manager {
             time: String::new(),
         };
         self.dbconn.insert_group_chat(chat)?;
+        Ok(())
+    }
+
+    pub fn remove_member(&self, grp: &mut MlsGroup, peer_idx: u16) -> Result<(), Box<dyn Error>> {
+        let peer = self
+            .dbconn
+            .get_peer_from_id(peer_idx)?
+            .ok_or(ConanError::NotFound)?;
+        let (signer, _, _) = MlsGroup::signer_from_expanded_key(&self.identity_key);
+        let commit = grp.remove_member(&peer, &self.provider, &signer)?;
+        self.send_commit(grp, commit)?;
+        Ok(())
+    }
+
+    pub fn promote_member(&self, grp: &mut MlsGroup, peer_idx: u16) -> Result<(), Box<dyn Error>> {
+        let peer = self
+            .dbconn
+            .get_peer_from_id(peer_idx)?
+            .ok_or(ConanError::NotFound)?;
+        let (signer, _, _) = MlsGroup::signer_from_expanded_key(&self.identity_key);
+        let commit = grp.promote_to_admin(&peer, &self.provider, &signer)?;
+        self.send_commit(grp, commit)?;
+        Ok(())
+    }
+
+    pub fn demote_member(&self, grp: &mut MlsGroup, peer_idx: u16) -> Result<(), Box<dyn Error>> {
+        let peer = self
+            .dbconn
+            .get_peer_from_id(peer_idx)?
+            .ok_or(ConanError::NotFound)?;
+        let (signer, _, _) = MlsGroup::signer_from_expanded_key(&self.identity_key);
+        let commit = grp.demote_to_member(&peer, &self.provider, &signer)?;
+        self.send_commit(grp, commit)?;
         Ok(())
     }
 }

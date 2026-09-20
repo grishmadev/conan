@@ -1,5 +1,5 @@
 use bincode::config;
-use openmls::prelude::Welcome;
+use openmls::{group::StagedCommit, prelude::Welcome};
 use serde::{Deserialize, Serialize};
 
 use crate::comm::enums::{IPCCmd, IPCRes};
@@ -46,14 +46,16 @@ pub enum Msg {
     GroupSuccess,
     /// Send `KeyPackage` over to another peer to join (serialized keypackage)
     KeyPackage(Vec<u8>),
-    /// Sends Error on group error (error message)
+    /// Send Error on group error (error message)
     GroupError(String),
     /// This message is sent to a peer when the group is successfully joined (serialized group id)
     GroupVerified(Vec<u8>),
-    /// Sends message to a group (serialized group id, serialized message)
+    /// Send message to a group (serialized group id, serialized message)
     GroupMessage(Vec<u8>, Vec<u8>),
-    /// Sends a message to connect to group from the other side (serialized group id)
+    /// Send message to connect to group from the other side (serialized group id)
     InitiateGroup(Vec<u8>),
+    /// Send Group Commit to a group (serialized group id, serialized commit)
+    GroupCommit(Vec<u8>, Vec<u8>),
 }
 
 impl Msg {

@@ -11,6 +11,8 @@ pub enum ConanError {
     ParseError,
     #[error("Error in Database")]
     Database(#[from] DatabaseError),
+    #[error("Session Locked. Try again later.")]
+    Locked,
     #[error("Other: {0:?}")]
     Other(String),
 }

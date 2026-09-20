@@ -1,5 +1,8 @@
 use conanprotocol::{
-    comm::enums::{IPCCmd, IPCRes},
+    comm::{
+        enums::{IPCCmd, IPCRes},
+        error::ConanError,
+    },
     config::parse_config,
     entities::{manager::Manager, master::Master},
     mls::ConanGroup,
@@ -37,20 +40,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let signing_key = signing_key().await?;
     loop {
         if let Ok(s) = worker_receiver.recv() {
+            let mut err: Option<String> = None;
             match s {
                 IPCCmd::Tick => {
                     msg_sender.send(IPCRes::Tock)?;
                 }
+
                 IPCCmd::StartServer => {
                     let started = manager.server_ready.load(Ordering::SeqCst);
                     msg_sender.send(IPCRes::ServerStarted(started))?;
                 }
+
                 IPCCmd::AddPeer(addr, _) => {
                     let name = generate_name(3..8);
                     let peer = Peer::build(&name, &addr, true);
                     let peer = manager.dbconn.insert_peer(peer)?;
                     msg_sender.send(IPCRes::AddedPeer(peer))?;
                 }
+
                 IPCCmd::Connect(peer_id) => {
                     let present_in_peers = manager.peers.read().unwrap().contains_key(&peer_id);
                     let present_in_waitlist = manager.waitlist.contains(&peer_id);
@@ -96,12 +103,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     if idx == 1 {
                         continue;
                     }
-                    let mut peers = manager.peers.write().unwrap();
-                    let Some(target) = peers.get_mut(&idx) else {
-                        eprintln!("Cannot find target peer to disconnect.");
-                        continue;
-                    };
-                    target.command_sender.send(SlaveCmd::Shutdown)?;
+                    if let Ok(mut peers) = manager.peers.write() {
+                        let Some(target) = peers.get_mut(&idx) else {
+                            eprintln!("Cannot find target peer to disconnect.");
+                            continue;
+                        };
+                        target.command_sender.send(SlaveCmd::Shutdown)?;
+                    } else {
+                        err = Some(ConanError::Locked.to_string());
+                    }
                 }
 
                 IPCCmd::PeerList => {
@@ -127,10 +137,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     manager.groups.write().unwrap().remove(&idx);
                     manager.msg_sender.send(IPCRes::DeletedGroup(idx))?;
                 }
+
                 IPCCmd::RenamePeer(idx, new_name) => {
                     manager.dbconn.rename_peer(idx, new_name)?;
                     manager.msg_sender.send(IPCRes::RenamedPeer(idx))?;
                 }
+
                 IPCCmd::ChatList {
                     peer_id,
                     msg_amount,
@@ -160,6 +172,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 IPCCmd::AddToGroup(group_idx, peer_idx) => {
                     if let Err(err) = manager.make_peer_join_group(peer_idx, group_idx) {
                         eprintln!("Cannot Join. {err}");
+                    }
+                }
+
+                IPCCmd::RemoveFromGroup(group_idx, peer_idx) => {
+                    if let Ok(mut groups) = manager.groups.write() {
+                        let target_grp = groups.get_mut(&group_idx).unwrap();
+                        manager.remove_member(target_grp, peer_idx)?;
                     }
                 }
 
@@ -217,9 +236,33 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     let Some(group) = groups.get_mut(&grp_idx) else {
                         continue;
                     };
-                    manager.send_msg(group, &text)?;
+                    manager.send_text(group, &text)?;
+                }
+
+                // TODO: Add a trigger in TUI side
+                IPCCmd::Promote(group_idx, peer_idx) => {
+                    if let Ok(mut groups) = manager.groups.write() {
+                        let group = groups.get_mut(&group_idx).ok_or(ConanError::NotFound)?;
+                        manager.promote_member(group, peer_idx)?;
+                    } else {
+                        err = Some(ConanError::Locked.to_string());
+                    }
+                }
+
+                // TODO: Add a trigger in TUI side
+                IPCCmd::Demote(group_idx, peer_idx) => {
+                    if let Ok(mut groups) = manager.groups.write() {
+                        let group = groups.get_mut(&group_idx).ok_or(ConanError::NotFound)?;
+                        manager.demote_member(group, peer_idx)?;
+                    } else {
+                        err = Some(ConanError::Locked.to_string());
+                    }
                 }
                 _ => unimplemented!(),
+            }
+            if let Some(err) = err {
+                manager.msg_sender.send(IPCRes::Error(err.clone()))?;
+                eprintln!("Error in Main Thread: {err}");
             }
         } else {
             manager.msg_sender.send(IPCRes::Error(

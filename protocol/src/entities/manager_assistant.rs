@@ -7,7 +7,7 @@ use crate::{
     config::parse_config,
     entities::slave::Slave,
     extras::mls_provider::ConanMlsProvider,
-    mls::{ConanGroup, ConanGroupError},
+    mls::{Addr, ConanGroup, ConanGroupError},
     msg::{Internal, Msg, SlaveCmd},
 };
 use database::{
@@ -110,7 +110,7 @@ impl CommandHandler {
     }
 
     pub fn handle_msg_join(&self, peer_idx: u16) -> Result<(), Box<dyn Error>> {
-        println!("got convert to group");
+        println!("Accepting Invitation to Join Group..");
         let (signer, _, _) = MlsGroup::signer_from_expanded_key(&self.identity_key);
         let peers = Arc::clone(&self.peers);
         let provider = ConanMlsProvider::new(&self.dbconn.openmls())?;
@@ -130,7 +130,7 @@ impl CommandHandler {
     }
 
     pub fn handle_msg_keypackage(&self, peer_idx: u16, data: &[u8]) -> Result<(), Box<dyn Error>> {
-        println!("got keypackage");
+        println!("Parsing Peer's KeyPackage..");
         let key_package = from_bytes::<KeyPackage>(data)?;
         let invitation = self.invitation_memory.write().unwrap();
 
@@ -159,13 +159,8 @@ impl CommandHandler {
             };
             target_group
         };
-        let self_info = self.dbconn.get_peer_from_id(1)?.unwrap();
-        let (commit, welcome) = target_group.add_member(
-            &self_info.address,
-            &self.provider,
-            &self.signer,
-            &key_package,
-        )?;
+        let (commit, welcome) =
+            target_group.add_member(&self.provider, &self.signer, &key_package)?;
         let mut peers = self.peers.write().unwrap();
         let Some(peer) = peers.get_mut(&peer_idx) else {
             return Err(ConanError::NotFound.into());
@@ -176,16 +171,10 @@ impl CommandHandler {
         peer.command_sender
             .send(SlaveCmd::Msg(Msg::Welcome(welcome)))?;
 
-        if target_group.pending_commit().is_some() {
-            println!("group with pending commit");
-        } else {
-            println!("group with no pending commit");
-        }
-
         target_group.merge_pending_commit(&self.provider)?;
 
         let members = target_group.get_members()?;
-        println!("members in keypackage: {members:?}");
+        println!("Members in KeyPackage: {members:?}");
 
         for m in &members {
             let dbpeer = self
@@ -210,17 +199,12 @@ impl CommandHandler {
         peer_idx: u16,
         welcome: Welcome,
     ) -> Result<(), Box<dyn Error>> {
-        println!("group welcome");
+        println!("Parsing Group Welcome..");
         let mut peers = self.peers.write().unwrap();
         let Some(peer) = peers.get_mut(&peer_idx) else {
             return Err(ConanError::NotFound.into());
         };
         let mls_grp = MlsGroup::join_group(&self.provider, welcome)?;
-        mls_grp.members().for_each(|m| {
-            let data = m.credential.serialized_content().to_vec();
-            let str = from_bytes::<String>(&data).unwrap();
-            println!("mls group member: {str}");
-        });
         let grp_id = mls_grp.group_id().to_vec();
 
         let dbgroup = DBGroup::new(grp_id.clone(), generate_name(3..8));
@@ -239,7 +223,7 @@ impl CommandHandler {
         peer_idx: u16,
         group_id: &[u8],
     ) -> Result<(), Box<dyn Error>> {
-        println!("group verified");
+        println!("Group Verified. Proceeding..");
         {
             // removing from invitation memory, because the exchange is complete
             let mut invitation = self.invitation_memory.write().unwrap();
@@ -254,15 +238,6 @@ impl CommandHandler {
             return Err(ConanError::NotFound.into());
         };
 
-        if let Some(cmt) = grp.pending_commit() {
-            println!("pending cmt: {cmt:?}");
-        } else {
-            println!("no pending commit");
-        }
-
-        // if let Err(e) = grp.merge_pending_commit(&self.provider) {
-        //     eprintln!("Error while merging commit: {e:?}");
-        // }
         println!("members: {:#?}", grp.get_members()?);
         // the group is already saved in initializers database
         // so it can be retrieved
@@ -275,25 +250,6 @@ impl CommandHandler {
             .ok_or("Unknown Peer dropping connection")?;
         self.dbconn.insert_member(db_group.id, peer, true)?;
 
-        let text = b"Hello there";
-        let mut peers = self.peers.write().unwrap();
-        let members = grp.members().collect::<Vec<_>>();
-        for m in members {
-            let link = from_bytes::<String>(m.credential.serialized_content())?;
-            let peer = self.dbconn.get_peer_from_addr(&link)?.unwrap();
-            if peer.id == 1 {
-                continue;
-            }
-            let Some(peer) = peers.get_mut(&peer.id) else {
-                continue;
-            };
-            let message = grp.create_message(&self.provider, &self.signer, text)?;
-            let message_ser = message.tls_serialize_detached()?;
-            peer.command_sender.send(SlaveCmd::Msg(Msg::GroupMessage(
-                grp.group_id().to_vec(),
-                message_ser,
-            )))?;
-        }
         ConanNotif::Sys("Group Exchange Complete.".into()).notify()?;
         Ok(())
     }
@@ -334,10 +290,11 @@ impl CommandHandler {
         };
         let message = message.try_into_protocol_message()?;
         let processed_message = group.process_message(&self.provider, message)?;
+        let sender_addr = processed_message.credential().to_addr();
         let content = processed_message.into_content();
         match content {
-            ProcessedMessageContent::ApplicationMessage(mess) => {
-                let content = mess.into_bytes();
+            ProcessedMessageContent::ApplicationMessage(msg) => {
+                let content = msg.into_bytes();
                 let data = String::from_utf8_lossy(&content).to_string();
                 let gc = GroupChat {
                     id: 0,
@@ -349,6 +306,17 @@ impl CommandHandler {
                 self.dbconn.insert_group_chat(gc)?;
             }
             ProcessedMessageContent::StagedCommitMessage(msg) => {
+                if !group.is_admin(&sender_addr)? {
+                    let db_peer = self
+                        .dbconn
+                        .get_peer_from_addr(&sender_addr)?
+                        .ok_or(ConanGroupError::NotFound)?;
+                    self.msg_sen.send(IPCRes::Error(format!(
+                        "Caution: {} tried to pass admin actions",
+                        db_peer.name
+                    )))?;
+                    return Err(ConanGroupError::NotAdmin.into());
+                }
                 group.merge_staged_commit(&self.provider, *msg)?;
             }
             _ => {}

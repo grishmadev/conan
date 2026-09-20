@@ -45,6 +45,8 @@ pub enum IPCCmd {
     NewGroup(Option<String>),
     /// Add member to a group (group index, peer index)
     AddToGroup(u16, u16),
+    /// Remove member from a group (group index, peer index)
+    RemoveFromGroup(u16, u16),
     /// Renames Selected group (u16)
     RenameGroup(u16, String),
     /// Get List of groups
@@ -53,6 +55,10 @@ pub enum IPCCmd {
     GroupConnect(u16),
     /// Send Command to other peers to join a group as well
     InitiateGroup(Vec<u8>),
+    /// Message to promote a Member to Admin
+    Promote(u16, u16),
+    /// Message to demote an Admin to Member
+    Demote(u16, u16),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Serialize, Deserialize)]

@@ -1,9 +1,13 @@
 use crate::{
-    comm::{enums::IPCRes, error::ConanError},
-    msg::{Internal, Msg},
+    comm::enums::{
+        error::ConanError,
+        internal::Internal,
+        ipcres::IPCRes,
+        msg::{Msg, SlaveCmd},
+    },
     operations::{listener_actor, recv},
 };
-use crate::{config::parse_config, msg::SlaveCmd, operations::send};
+use crate::{config::parse_config, operations::send};
 use arti_client::DataStream;
 use crypto::ratchet::RatchetSession;
 use database::{

@@ -2,31 +2,6 @@ use bincode::config;
 use openmls::prelude::Welcome;
 use serde::{Deserialize, Serialize};
 
-use crate::comm::enums::{IPCCmd, IPCRes};
-
-pub enum PeerVerified {
-    Verified,
-    Invalid,
-}
-
-#[derive(Default)]
-pub enum PeerStatus {
-    Connected,
-    #[default]
-    NotFound,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[non_exhaustive]
-pub enum Internal {
-    HsId,
-    Msg(Msg),
-    IPCRes(IPCRes),
-    IPCCmd(IPCCmd),
-    RemovePeer(u16),
-    ChatSent(u16, String),
-}
-
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 #[non_exhaustive]
 pub enum Msg {
@@ -50,12 +25,10 @@ pub enum Msg {
     GroupError(String),
     /// This message is sent to a peer when the group is successfully joined (serialized group id)
     GroupVerified(Vec<u8>),
-    /// Send message to a group (serialized group id, serialized message)
-    GroupMessage(Vec<u8>, Vec<u8>),
+    /// Send message/commits to a group (serialized group id, serialized message/commit)
+    GroupAction(Vec<u8>, Vec<u8>),
     /// Send message to connect to group from the other side (serialized group id)
     InitiateGroup(Vec<u8>),
-    /// Send Group Commit to a group (serialized group id, serialized commit)
-    GroupCommit(Vec<u8>, Vec<u8>),
 }
 
 impl Msg {
@@ -78,12 +51,6 @@ impl From<&str> for Msg {
     fn from(value: &str) -> Self {
         Msg::Text(value.to_string())
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Mode {
-    Normal,
-    Insert { cursor_pos: usize },
 }
 
 #[derive(Debug, Clone, PartialEq)]

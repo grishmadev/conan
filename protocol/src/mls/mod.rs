@@ -1,8 +1,8 @@
-use crate::comm::error::ConanError;
+use crate::comm::enums::error::ConanError;
 use crate::constants::MLS_ADMIN_ID;
 use crate::extras::mls_provider::ConanMlsProvider;
 use crate::{
-    comm::enums::{from_bytes, to_bytes},
+    comm::{from_bytes, to_bytes},
     config::parse_config,
 };
 use database::ConnectionClone;
@@ -122,14 +122,14 @@ impl ConanGroup for MlsGroup {
         let (signer, _, _) = Self::signer_from_expanded_key(expanded_key);
         signer.store(&openmls_store)?;
 
-        let id_bytes = to_bytes(self_link);
+        let id_bytes = to_bytes(self_link)?;
         let credential_with_key = CredentialWithKey {
             credential: BasicCredential::new(id_bytes).into(),
             signature_key: signer.public().into(),
         };
 
         let admins = vec![self_link.to_string()];
-        let admins_ser = to_bytes(&admins);
+        let admins_ser = to_bytes(&admins)?;
         let mut extensions = Extensions::empty();
         extensions.add(Extension::Unknown(
             MLS_ADMIN_ID,
@@ -160,7 +160,7 @@ impl ConanGroup for MlsGroup {
         let mut extensions = Extensions::empty();
         extensions.add(Extension::Unknown(
             MLS_ADMIN_ID,
-            UnknownExtension(to_bytes(admins)),
+            UnknownExtension(to_bytes(admins)?),
         ))?;
         let (commit, _, _) = self.update_group_context_extensions(provider, extensions, signer)?;
         Ok(commit)
@@ -178,7 +178,7 @@ impl ConanGroup for MlsGroup {
         let mut extensions = Extensions::empty();
         extensions.add(Extension::Unknown(
             MLS_ADMIN_ID,
-            UnknownExtension(to_bytes(admins)),
+            UnknownExtension(to_bytes(admins)?),
         ))?;
         let (commit, _, _) = self.update_group_context_extensions(provider, extensions, signer)?;
         Ok(commit)
@@ -203,7 +203,7 @@ impl ConanGroup for MlsGroup {
         signer: &SignatureKeyPair,
     ) -> Result<MlsMessageOut, Box<dyn Error>> {
         self.am_i_admin()?;
-        let id_bytes = to_bytes(peer.address.clone());
+        let id_bytes = to_bytes(peer.address.clone())?;
         let leaf_idx = self
             .member_leaf_index(&BasicCredential::new(id_bytes).into())
             .ok_or(ConanError::NotFound)?;
@@ -249,7 +249,7 @@ impl ConanGroup for MlsGroup {
         self_link: &str,
     ) -> Result<KeyPackageBundle, KeyPackageNewError> {
         let cipher = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
-        let id_bytes = to_bytes(self_link);
+        let id_bytes = to_bytes(self_link).unwrap();
         let credential_with_key = CredentialWithKey {
             credential: BasicCredential::new(id_bytes).into(),
             signature_key: signer.public().into(),

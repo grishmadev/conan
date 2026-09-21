@@ -1,4 +1,3 @@
-use conanprotocol::msg::Mode;
 use ratatui::{
     Frame,
     layout::{HorizontalAlignment, Rect},
@@ -8,7 +7,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListDirection, ListItem},
 };
 
-use crate::App;
+use crate::{App, matches::Mode};
 
 pub trait MainComponents {
     fn render_chats(&mut self, f: &mut Frame<'_>, selected: bool, area: Rect);

@@ -8,7 +8,10 @@ use tokio::{
 use tor_hsservice::HsId;
 
 use crate::{
-    comm::enums::{IPCCmd, IPCRes, encode},
+    comm::{
+        encode,
+        enums::{ipccmd::IPCCmd, ipcres::IPCRes},
+    },
     config::ConanConfig,
 };
 

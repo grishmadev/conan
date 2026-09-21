@@ -2,7 +2,7 @@ use bincode::config;
 use ed25519_dalek::ed25519::signature::rand_core::OsRng;
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
-use crate::msg::Msg;
+use crate::comm::enums::msg::Msg;
 
 #[test]
 /// Tests encryption and decryption using Double Ratchet

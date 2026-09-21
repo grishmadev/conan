@@ -1,10 +1,8 @@
-use crate::comm::enums::IPCRes;
-use crate::comm::error::ConanError;
+use crate::comm::enums::{error::ConanError, internal::Internal, ipcres::IPCRes, msg::Msg};
 use crate::config::parse_config;
+use crate::constants::ARTI_PRIVATE_KEY;
 use crate::constants::SELF_PORT;
 use crate::entities::slave::Slave;
-use crate::msg::Internal;
-use crate::{constants::ARTI_PRIVATE_KEY, msg::Msg};
 use arti_client::{DataStream, TorClient};
 use base64::Engine;
 use crypto::{

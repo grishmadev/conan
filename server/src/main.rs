@@ -1,12 +1,13 @@
 use conanprotocol::{
-    comm::{
-        enums::{IPCCmd, IPCRes},
+    comm::enums::{
         error::ConanError,
+        ipccmd::IPCCmd,
+        ipcres::IPCRes,
+        msg::{Msg, SlaveCmd},
     },
     config::parse_config,
     entities::{manager::Manager, master::Master},
     mls::ConanGroup,
-    msg::{Msg, SlaveCmd},
     operations::signing_key,
 };
 use database::entities::{

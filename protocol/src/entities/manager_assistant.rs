@@ -1,14 +1,20 @@
 use crate::{
     comm::{
-        enums::{IPCCmd, IPCRes, from_bytes, to_bytes},
-        error::ConanError,
+        enums::{
+            error::ConanError,
+            internal::Internal,
+            ipccmd::IPCCmd,
+            ipcres::IPCRes,
+            msg::{Msg, SlaveCmd},
+        },
+        from_bytes,
         notification::ConanNotif,
+        to_bytes,
     },
     config::parse_config,
     entities::slave::Slave,
     extras::mls_provider::ConanMlsProvider,
     mls::{Addr, ConanGroup, ConanGroupError},
-    msg::{Internal, Msg, SlaveCmd},
 };
 use database::{
     ConnectionClone, FromConnection,
@@ -23,7 +29,7 @@ use database::{
 };
 use extras::{codec::JsonCodec, generate_name};
 use openmls::{
-    group::{GroupId, MlsGroup},
+    group::{GroupId, MlsGroup, StagedCommit},
     prelude::{
         DeserializeBytes, KeyPackage, MlsMessageBodyOut, MlsMessageIn, ProcessedMessageContent,
         Welcome, tls_codec::Serialize,
@@ -122,7 +128,7 @@ impl CommandHandler {
         let Some(peer) = peers.get_mut(&peer_idx) else {
             return Err(ConanError::NotFound.into());
         };
-        let key_package_ser = to_bytes(key_package.key_package());
+        let key_package_ser = to_bytes(key_package.key_package())?;
         peer.command_sender
             .send(SlaveCmd::Msg(Msg::KeyPackage(key_package_ser)))?;
         println!("peer idx: {peer_idx}");
@@ -185,7 +191,7 @@ impl CommandHandler {
                 continue;
             }
             if let Some(peer) = peers.get(&dbpeer.id) {
-                peer.command_sender.send(SlaveCmd::Msg(Msg::GroupMessage(
+                peer.command_sender.send(SlaveCmd::Msg(Msg::GroupAction(
                     target_group.group_id().to_vec(),
                     commit.tls_serialize_detached()?,
                 )))?;
@@ -276,7 +282,7 @@ impl CommandHandler {
         Ok(())
     }
 
-    pub fn handle_group_message(
+    pub fn handle_group_actions(
         &self,
         peer_idx: u16,
         group_id: &[u8],

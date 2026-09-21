@@ -10,6 +10,12 @@ pub enum Tab {
     None,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Mode {
+    Normal,
+    Insert { cursor_pos: usize },
+}
+
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy)]
 pub enum TuiCommand {

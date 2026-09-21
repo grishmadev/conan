@@ -4,7 +4,6 @@ pub mod constants;
 pub mod entities;
 pub mod extras;
 pub mod mls;
-pub mod msg;
 pub mod operations;
 pub mod requests;
 #[cfg(test)]

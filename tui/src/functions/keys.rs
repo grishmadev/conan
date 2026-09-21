@@ -1,13 +1,13 @@
 use std::time::{Duration, Instant};
 
-use conanprotocol::{comm::enums::IPCCmd, msg::Mode};
+use conanprotocol::comm::enums::ipccmd::IPCCmd;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
-use database::entities::{tuichat::TuiChat};
+use database::entities::tuichat::TuiChat;
 
 use crate::{
     App,
     functions::{ConfirmMode, InputMode, LoadingMode, terminal_control::TerminalControl},
-    matches::{PaletteCommand, Screen, Tab},
+    matches::{Mode, PaletteCommand, Screen, Tab},
 };
 
 pub trait Keys {

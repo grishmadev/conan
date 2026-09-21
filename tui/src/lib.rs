@@ -10,9 +10,11 @@ use std::{
 
 use bincode::config;
 use conanprotocol::{
-    comm::enums::{IPCCmd, IPCRes, encode},
+    comm::{
+        encode,
+        enums::{ipccmd::IPCCmd, ipcres::IPCRes},
+    },
     config::ConanConfig,
-    msg::Mode,
 };
 use database::entities::{group::DBGroup, peer::Peer, tuichat::TuiChat};
 use ratatui::{
@@ -35,7 +37,7 @@ use crate::{
         welcome::WelcomeScreen,
     },
     functions::{ConfirmMode, InputMode, LoadingMode, keys::Keys},
-    matches::{Screen, Tab},
+    matches::{Mode, Screen, Tab},
 };
 
 pub struct App {

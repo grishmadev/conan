@@ -1,3 +1,19 @@
+use crate::{
+    comm::enums::{
+        error::ConanError,
+        internal::Internal,
+        ipccmd::IPCCmd,
+        ipcres::IPCRes,
+        msg::{Msg, SlaveCmd},
+    },
+    config::ConanConfig,
+    constants::BOUNDED_CHANNEL_SIZE,
+    debug,
+    entities::{manager_assistant::CommandHandler, slave::Slave},
+    extras::mls_provider::ConanMlsProvider,
+    mls::ConanGroup,
+    operations::{connect_as_dialer, signing_key, single_connect_as_dialer},
+};
 use arti_client::{BootstrapBehavior, TorClient, TorClientConfig, config::CfgPath};
 use database::{
     ConnectionClone,
@@ -30,21 +46,6 @@ use tokio::sync::broadcast;
 use tor_cell::relaycell::msg::Connected;
 use tor_hsservice::{HsNickname, OnionServiceConfig, RendRequest, RunningOnionService};
 use tor_llcrypto::pk::ed25519::ExpandedKeypair;
-
-use crate::{
-    comm::{
-        enums::{IPCCmd, IPCRes},
-        error::ConanError,
-    },
-    config::ConanConfig,
-    constants::BOUNDED_CHANNEL_SIZE,
-    debug,
-    entities::{manager_assistant::CommandHandler, slave::Slave},
-    extras::mls_provider::ConanMlsProvider,
-    mls::ConanGroup,
-    msg::{Internal, Msg, SlaveCmd},
-    operations::{connect_as_dialer, signing_key, single_connect_as_dialer},
-};
 
 pub struct Manager {
     pub tor_client: Arc<TorClient<tor_rtcompat::PreferredRuntime>>,
@@ -385,8 +386,8 @@ impl Manager {
                         Msg::GroupVerified(group_id) => {
                             cmdhandler.handle_msg_group_verified(peer_idx, &group_id)
                         }
-                        Msg::GroupMessage(group_id, message) => {
-                            cmdhandler.handle_group_message(peer_idx, &group_id, &message)
+                        Msg::GroupAction(group_id, message) => {
+                            cmdhandler.handle_group_actions(peer_idx, &group_id, &message)
                         }
                         Msg::InitiateGroup(group_id) => cmdhandler.handle_initiate_group(group_id),
                         _ => unimplemented!(),
@@ -506,7 +507,7 @@ impl Manager {
     }
 
     fn send_commit(&self, grp: &mut MlsGroup, commit: MlsMessageOut) -> Result<(), Box<dyn Error>> {
-        let msg = Msg::GroupCommit(grp.group_id().to_vec(), commit.tls_serialize_detached()?);
+        let msg = Msg::GroupAction(grp.group_id().to_vec(), commit.tls_serialize_detached()?);
         self.send_msg(grp, &msg)?;
         Ok(())
     }
@@ -516,7 +517,7 @@ impl Manager {
         let msg = grp.create_message(&self.provider, &signer, text.as_bytes())?;
         let msg_des = msg.tls_serialize_detached()?;
         let group_id = grp.group_id().to_vec();
-        let msg = Msg::GroupMessage(group_id.clone(), msg_des);
+        let msg = Msg::GroupAction(group_id.clone(), msg_des);
         self.send_msg(grp, &msg)?;
         let dbgrp = self.dbconn.get_group_by_group_id(&group_id)?;
         let chat = GroupChat {

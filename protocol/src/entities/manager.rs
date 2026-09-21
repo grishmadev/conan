@@ -506,12 +506,18 @@ impl Manager {
         Ok(())
     }
 
-    fn send_commit(&self, grp: &mut MlsGroup, commit: MlsMessageOut) -> Result<(), Box<dyn Error>> {
+    fn send_commit(
+        &self,
+        grp: &mut MlsGroup,
+        commit: &MlsMessageOut,
+    ) -> Result<(), Box<dyn Error>> {
         let msg = Msg::GroupAction(grp.group_id().to_vec(), commit.tls_serialize_detached()?);
         self.send_msg(grp, &msg)?;
         Ok(())
     }
 
+    /// Sends a text message to chosen group
+    /// # Errors
     pub fn send_text(&self, grp: &mut MlsGroup, text: &str) -> Result<(), Box<dyn Error>> {
         let (signer, _, _) = MlsGroup::signer_from_expanded_key(&self.identity_key);
         let msg = grp.create_message(&self.provider, &signer, text.as_bytes())?;
@@ -531,6 +537,8 @@ impl Manager {
         Ok(())
     }
 
+    /// Remove member from a group
+    /// # Errors
     pub fn remove_member(&self, grp: &mut MlsGroup, peer_idx: u16) -> Result<(), Box<dyn Error>> {
         let peer = self
             .dbconn
@@ -538,10 +546,12 @@ impl Manager {
             .ok_or(ConanError::NotFound)?;
         let (signer, _, _) = MlsGroup::signer_from_expanded_key(&self.identity_key);
         let commit = grp.remove_member(&peer, &self.provider, &signer)?;
-        self.send_commit(grp, commit)?;
+        self.send_commit(grp, &commit)?;
         Ok(())
     }
 
+    /// Promote a member to admin in a group
+    /// # Errors
     pub fn promote_member(&self, grp: &mut MlsGroup, peer_idx: u16) -> Result<(), Box<dyn Error>> {
         let peer = self
             .dbconn
@@ -549,10 +559,12 @@ impl Manager {
             .ok_or(ConanError::NotFound)?;
         let (signer, _, _) = MlsGroup::signer_from_expanded_key(&self.identity_key);
         let commit = grp.promote_to_admin(&peer, &self.provider, &signer)?;
-        self.send_commit(grp, commit)?;
+        self.send_commit(grp, &commit)?;
         Ok(())
     }
 
+    /// Demote a member from admin in a group
+    /// # Errors
     pub fn demote_member(&self, grp: &mut MlsGroup, peer_idx: u16) -> Result<(), Box<dyn Error>> {
         let peer = self
             .dbconn
@@ -560,7 +572,7 @@ impl Manager {
             .ok_or(ConanError::NotFound)?;
         let (signer, _, _) = MlsGroup::signer_from_expanded_key(&self.identity_key);
         let commit = grp.demote_to_member(&peer, &self.provider, &signer)?;
-        self.send_commit(grp, commit)?;
+        self.send_commit(grp, &commit)?;
         Ok(())
     }
 }

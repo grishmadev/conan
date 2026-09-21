@@ -37,7 +37,7 @@ impl PaletteCommand {
         };
         let val = match cmd {
             "newgroup" => {
-                let name = values.next().map(|g| g.into());
+                let name = values.next().map(Into::into);
                 PaletteCommand::NewGroup(name)
             }
             "addtogroup" => {

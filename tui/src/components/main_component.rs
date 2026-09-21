@@ -36,7 +36,7 @@ impl MainComponents for App {
             .chats
             .iter()
             .map(|c| {
-                let style = if c.sender_name == "Me".to_string() {
+                let style = if &c.sender_name == "Me" {
                     Style::new().green()
                 } else {
                     Style::new().cyan()

@@ -29,7 +29,7 @@ use database::{
 };
 use extras::{codec::JsonCodec, generate_name};
 use openmls::{
-    group::{GroupId, MlsGroup, StagedCommit},
+    group::{GroupId, MlsGroup},
     prelude::{
         DeserializeBytes, KeyPackage, MlsMessageBodyOut, MlsMessageIn, ProcessedMessageContent,
         Welcome, tls_codec::Serialize,

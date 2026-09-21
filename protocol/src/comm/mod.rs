@@ -6,7 +6,7 @@ use serde::de::DeserializeOwned;
 pub mod enums;
 pub mod notification;
 
-/// # Panics
+/// # Errors
 pub fn to_bytes<T>(msg: T) -> Result<Vec<u8>, bincode::error::EncodeError>
 where
     T: Serialize,

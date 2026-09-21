@@ -10,6 +10,7 @@ use crypto::{
     ratchet::{RatchetMessage, RatchetSession},
 };
 use database::entities::peer::{Peer, PeerData};
+use database::error::DatabaseError;
 use database::rusqlite::Connection;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey, ed25519::signature::rand_core::OsRng};
 use extras::generate_name;
@@ -391,6 +392,7 @@ where
 /// Connects to Peer's Tor Address as a dialer (Seeking connection)
 /// # Errors
 /// # Panics
+#[allow(clippy::implicit_hasher)]
 pub async fn connect_as_dialer(
     tor_client: Arc<TorClient<PreferredRuntime>>,
     msg_sender: broadcast::Sender<IPCRes>,
@@ -459,6 +461,10 @@ pub async fn connect_as_dialer(
     Ok(())
 }
 
+/// Attempts to connect to a peer with 1 try
+/// # Panics
+/// # Errors
+#[allow(clippy::implicit_hasher)]
 pub async fn single_connect_as_dialer(
     tor_client: Arc<TorClient<PreferredRuntime>>,
     service: Arc<RunningOnionService>,
@@ -473,19 +479,19 @@ pub async fn single_connect_as_dialer(
     };
     let (mut reader, mut writer) = tokio::io::split(stream);
 
-    let local_hsid = service
-        .onion_address()
-        .ok_or("Onion Address Not found.")
-        .unwrap();
+    let local_hsid = service.onion_address().ok_or(ConanError::ParseError)?;
     let session = match dialer_actor(&mut reader, &mut writer, local_hsid, &addr).await {
         Ok(s) => s,
         Err(e) => {
             let msg = format!("Error while Reaching out.\n{e:?}");
-            msg_sender.send(IPCRes::Error(msg.clone())).unwrap();
+            _ = msg_sender.send(IPCRes::Error(msg.clone()));
             return Err(ConanError::ConnectionError);
         }
     };
-    let known = dbconn.get_peer_from_addr(&addr).unwrap();
+    let known = dbconn
+        .get_peer_from_addr(&addr)
+        .ok()
+        .ok_or(ConanError::Database(DatabaseError::NotFound))?;
     let trans = dbconn.transaction().unwrap();
     let name = generate_name(3..10);
     let idx = if let Some(known_peer) = known {

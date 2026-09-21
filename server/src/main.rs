@@ -195,7 +195,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
 
                 IPCCmd::InitiateGroup(grp_id) => {
-                    println!("initiating group from this side");
+                    println!("Initiating Group.");
                     let dbgroup = manager.dbconn.get_group_by_group_id(&grp_id)?;
                     let mut mlsgrp = manager.get_mls_group_from_idx(dbgroup.id)?;
                     manager.connect_to_group(&mut mlsgrp)?;
@@ -228,12 +228,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
 
                 IPCCmd::GroupText(grp_idx, text) => {
-                    println!("Group Chat to send");
                     let mut groups = manager.groups.write().unwrap();
-                    groups.iter().for_each(|g| {
-                        println!("group idx: {}", g.0);
-                    });
-                    println!("target group idx: {grp_idx}");
                     let Some(group) = groups.get_mut(&grp_idx) else {
                         continue;
                     };

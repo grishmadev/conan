@@ -32,7 +32,7 @@ use tokio::{
 
 use crate::{
     components::{
-        command_pallete::CommandPallete, confirmation_screen::ConfirmScreen, input::InputScreen,
+        command_palette::CommandPalette, confirmation_screen::ConfirmScreen, input::InputScreen,
         loading_screen::LoadingScreen, main_component::MainComponents, notification::Notification,
         welcome::WelcomeScreen,
     },

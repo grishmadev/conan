@@ -1,4 +1,4 @@
-pub mod command_pallete;
+pub mod command_palette;
 pub mod confirmation_screen;
 pub mod input;
 pub mod loading_screen;

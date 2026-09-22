@@ -11,19 +11,39 @@ use crate::{
 };
 
 pub trait Keys {
+    /// Manage Keymappings.
+    ///
+    /// # Errors
     fn manage_keys(&mut self) -> impl Future<Output = std::io::Result<()>>;
+    /// Handles Keys for [`Screen::None`]
+    ///
+    /// # Errors
     fn handle_none_screen(&mut self, key: KeyEvent) -> impl Future<Output = std::io::Result<()>>;
+    /// Handles Keys for [`Screen::InputScreen`]
+    ///
+    /// # Errors
     fn handle_input_screen(&mut self, key: KeyEvent) -> impl Future<Output = std::io::Result<()>>;
-    fn handle_loading_screen(&mut self, key: KeyEvent)
-    -> impl Future<Output = std::io::Result<()>>;
+    /// Handles Keys for [`Screen::LoadingScreen`]
+    ///
+    /// # Errors
+    fn handle_loading_screen(&mut self, key: KeyEvent) -> std::io::Result<()>;
+    /// Handles Keys for [`Screen::ConfirmScreen`]
+    ///
+    /// # Errors
     fn handle_confirm_screen(&mut self, key: KeyEvent)
     -> impl Future<Output = std::io::Result<()>>;
+    /// Handles Keys for [`Screen::CommandPallete`]
+    ///
+    /// # Errors
     fn handle_command_palette(
         &mut self,
         key: KeyEvent,
     ) -> impl Future<Output = std::io::Result<()>>;
-    fn next_tab(&mut self);
+    /// Toggles tab when called
+    fn toggle_tab(&mut self);
+    /// Triggers next idx when called
     fn next_idx(&mut self);
+    /// Triggers prev index when called
     fn prev_idx(&mut self);
 }
 
@@ -48,7 +68,7 @@ impl Keys for App {
                     self.handle_input_screen(key).await?;
                 }
                 Screen::LoadingScreen { .. } => {
-                    self.handle_loading_screen(key).await?;
+                    self.handle_loading_screen(key)?;
                 }
                 Screen::ConfirmScreen { .. } => {
                     self.handle_confirm_screen(key).await?;
@@ -65,7 +85,7 @@ impl Keys for App {
     async fn handle_none_screen(&mut self, key: KeyEvent) -> std::io::Result<()> {
         match key.code {
             KeyCode::Tab => {
-                self.next_tab();
+                self.toggle_tab();
             }
             KeyCode::Char(ch) if matches!(self.mode, Mode::Insert { .. }) => {
                 if let Mode::Insert { ref mut cursor_pos } = self.mode {
@@ -213,7 +233,7 @@ impl Keys for App {
                                     msg_amount: 50,
                                 })
                                 .await?;
-                                self.next_tab();
+                                self.toggle_tab();
                                 return Ok(());
                             }
                             self.active_screen = Screen::LoadingScreen {
@@ -399,7 +419,7 @@ impl Keys for App {
         Ok(())
     }
 
-    async fn handle_loading_screen(&mut self, key: KeyEvent) -> std::io::Result<()> {
+    fn handle_loading_screen(&mut self, key: KeyEvent) -> std::io::Result<()> {
         let Screen::LoadingScreen {
             ref loading_text, ..
         } = self.active_screen
@@ -549,7 +569,7 @@ impl Keys for App {
         Ok(())
     }
 
-    fn next_tab(&mut self) {
+    fn toggle_tab(&mut self) {
         match self.tab {
             Tab::None | Tab::Contact => {
                 self.tab = Tab::Chat;

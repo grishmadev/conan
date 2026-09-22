@@ -8,11 +8,11 @@ use ratatui::{
 
 use crate::App;
 
-pub trait CommandPallete {
+pub trait CommandPalette {
     fn render_command_palette(&self, f: &mut Frame<'_>, text: &str, cursor_pos: &usize);
 }
 
-impl CommandPallete for App {
+impl CommandPalette for App {
     fn render_command_palette(&self, f: &mut Frame<'_>, text: &str, cursor_pos: &usize) {
         let area = f.area();
         let width = 60;

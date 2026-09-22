@@ -1119,7 +1119,7 @@ checksum = "cc14f565cf027a105f7a44ccf9e5b424348421a1d8952a8fc9d499d313107789"
 
 [[package]]
 name = "conan-chat"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "bincode",
  "clap",
@@ -1136,7 +1136,7 @@ dependencies = [
 
 [[package]]
 name = "conan-chat-server"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "bincode",
  "clap",
@@ -1152,7 +1152,7 @@ dependencies = [
 
 [[package]]
 name = "conan-protocol"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "arti-client",
  "base64 0.23.1",
@@ -1446,7 +1446,7 @@ checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 
 [[package]]
 name = "crypto"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "bs58",
  "chacha20poly1305 0.11.0",
@@ -1738,7 +1738,7 @@ dependencies = [
 
 [[package]]
 name = "database"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "bincode",
  "chrono",
@@ -2261,7 +2261,7 @@ dependencies = [
 
 [[package]]
 name = "extras"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "bincode",
  "chacha20poly1305 0.11.0",
@@ -9508,7 +9508,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "chacha20poly1305 0.11.0",
  "conan-protocol",

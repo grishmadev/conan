@@ -7,6 +7,7 @@ edition.workspace = true
 rust-version.workspace = true
 description = "Protocol definitions for the Conan"
 repository.workspace = true
+publish = true
 
 [lib]
 name = "conanprotocol"

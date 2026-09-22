@@ -4,17 +4,17 @@ members = ["tui", "server", "protocol", "xtask", "database", "extras", "crypto"]
 
 [workspace.package]
 authors = ["grishma <grishmadev@proton.me>"]
-version = "1.0.0"
+version = "2.0.0"
 license = "MIT"
 edition = "2024"
 rust-version = "1.90"
 repository = "https://github.com/grishmadev/conan"
 
 [workspace.dependencies]
-conan-protocol = { path = "protocol/", version = "1.0.0" }
-database = { path = "database/", version = "1.0.0" }
-extras = { path = "extras/", version = "1.0.0" }
-crypto = { path = "crypto/", version = "1.0.0" }
+conan-protocol = { path = "protocol/", version = "2.0.0" }
+database = { path = "database/", version = "2.0.0" }
+extras = { path = "extras/", version = "2.0.0" }
+crypto = { path = "crypto/", version = "2.0.0" }
 tokio = { version = "1.52.3", features = ["full"] }
 arti-client = { version = "0.45.0", features = [
   "onion-service-client",

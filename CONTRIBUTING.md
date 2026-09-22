@@ -12,7 +12,7 @@ Report an Issue if:
 ### Commit rules involve
 
 - A individual commit should be able to compile on its own.
-- The code should be formatted & tested before committing via `cargo fmt` & `cargo test`.
+- The code should be formatted & tested before committing via `make devfull`.
 - The code should follow the Minimum Rust Version (MRV) of the project.
 - Commit should not be long enough to make reviewing harder.
 

@@ -23,7 +23,6 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      # 1. Formatting & Auto-Correction
       - name: Auto-format code
         run: cargo fmt
 

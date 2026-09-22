@@ -652,15 +652,15 @@ mod tests {
 
     #[test]
     fn out_of_order_across_dh_ratchet() {
-        let (mut alice, mut bob) = setup();
-        let msg_a1 = alice.encrypt(b"a1", b"").unwrap();
-        let msg_a2 = alice.encrypt(b"a2", b"").unwrap();
-        assert_eq!(bob.decrypt(&msg_a2, b"").unwrap(), b"a2");
-        assert_eq!(bob.skipped_keys_count(), 1);
-        let msg_b1 = bob.encrypt(b"b1", b"").unwrap();
-        assert_eq!(alice.decrypt(&msg_b1, b"").unwrap(), b"b1");
-        assert_eq!(bob.decrypt(&msg_a1, b"").unwrap(), b"a1");
-        assert_eq!(bob.skipped_keys_count(), 0);
+        let (mut remote, mut local) = setup();
+        let remote_first = remote.encrypt(b"a1", b"").unwrap();
+        let remote_second = remote.encrypt(b"a2", b"").unwrap();
+        assert_eq!(local.decrypt(&remote_second, b"").unwrap(), b"a2");
+        assert_eq!(local.skipped_keys_count(), 1);
+        let local_first = local.encrypt(b"b1", b"").unwrap();
+        assert_eq!(remote.decrypt(&local_first, b"").unwrap(), b"b1");
+        assert_eq!(local.decrypt(&remote_first, b"").unwrap(), b"a1");
+        assert_eq!(local.skipped_keys_count(), 0);
     }
 
     #[test]

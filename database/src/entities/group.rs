@@ -25,16 +25,22 @@ impl DBGroup {
 }
 
 pub trait ConnectionGroup {
+    /// List all groups
     /// # Errors
     fn list_groups(&self) -> Result<Vec<DBGroup>, rusqlite::Error>;
+    /// Insert a group
     /// # Errors
     fn insert_group(&self, group: DBGroup) -> Result<DBGroup, rusqlite::Error>;
+    /// Delete a group
     /// # Errors
     fn delete_group(&self, group_id: u16) -> Result<(), rusqlite::Error>;
+    /// Rename a group
     /// # Errors
-    fn rename_group(&self, group_id: u16, name: String) -> Result<DBGroup, rusqlite::Error>;
+    fn rename_group(&self, group_id: u16, name: &str) -> Result<DBGroup, rusqlite::Error>;
+    /// Get group from its `group_id`
     /// # Errors
     fn get_group_by_group_id(&self, group_id: &[u8]) -> Result<DBGroup, rusqlite::Error>;
+    /// Get a from its index
     /// # Errors
     fn get_group_by_idx(&self, idx: u16) -> Result<DBGroup, rusqlite::Error>;
 }
@@ -96,7 +102,7 @@ impl ConnectionGroup for Connection {
         Ok(())
     }
 
-    fn rename_group(&self, id: u16, name: String) -> Result<DBGroup, rusqlite::Error> {
+    fn rename_group(&self, id: u16, name: &str) -> Result<DBGroup, rusqlite::Error> {
         let mut stmt = self.prepare(
             "UPDATE my_group SET name = ?1 WHERE id = ?2 RETURNING id, group_id, name, created_at",
         )?;

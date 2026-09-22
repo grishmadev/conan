@@ -1,5 +1,5 @@
 pub mod keys;
-pub mod terminal_control;
+pub mod tui_handler;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputMode {

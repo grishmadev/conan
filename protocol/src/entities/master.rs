@@ -30,13 +30,16 @@ impl Master {
     pub fn build(
         self_addr: Option<(HsId, u16)>,
         worker_sender: mpsc::Sender<IPCCmd>,
-        msg_receiver: broadcast::Receiver<IPCRes>,
-    ) -> Self {
-        Self {
-            self_addr,
-            worker_sender,
-            msg_receiver,
-        }
+    ) -> (Self, broadcast::Sender<IPCRes>) {
+        let (msg_sender, msg_receiver) = broadcast::channel::<IPCRes>(100);
+        (
+            Self {
+                self_addr,
+                worker_sender,
+                msg_receiver,
+            },
+            msg_sender,
+        )
     }
 
     /// # Errors

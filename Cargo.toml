@@ -11,10 +11,10 @@ rust-version = "1.90"
 repository = "https://github.com/grishmadev/conan"
 
 [workspace.dependencies]
-conan-protocol = { path = "protocol/", version = "2.0.0" }
-database = { path = "database/", version = "2.0.0" }
-extras = { path = "extras/", version = "2.0.0" }
-crypto = { path = "crypto/", version = "2.0.0" }
+conan-protocol = { path = "protocol/" }
+conan-database = { path = "database/" }
+conan-extras = { path = "extras/" }
+conan-crypto = { path = "crypto/" }
 tokio = { version = "1.52.3", features = ["full"] }
 arti-client = { version = "0.45.0", features = [
   "onion-service-client",

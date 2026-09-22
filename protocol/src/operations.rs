@@ -5,15 +5,15 @@ use crate::constants::SELF_PORT;
 use crate::entities::slave::Slave;
 use arti_client::{DataStream, TorClient};
 use base64::Engine;
-use crypto::{
+use conan_extras::generate_name;
+use conancrypto::{
     aead::{self, EncryptedMessage, MessageKey},
     ratchet::{RatchetMessage, RatchetSession},
 };
-use database::entities::peer::{Peer, PeerData};
-use database::error::DatabaseError;
-use database::rusqlite::Connection;
+use conandatabase::entities::peer::{Peer, PeerData};
+use conandatabase::error::DatabaseError;
+use conandatabase::rusqlite::Connection;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey, ed25519::signature::rand_core::OsRng};
-use extras::generate_name;
 use futures::AsyncReadExt as FutureRead;
 use safelog::DisplayRedacted;
 use ssh_encoding::Decode;
@@ -147,7 +147,7 @@ pub fn edhverify(
 /// so Alice can compute Bob's ratchet public key independently.
 /// # Panics
 pub fn derive_bob_ratchet_key(shared_secret: &[u8; 32]) -> (StaticSecret, PublicKey) {
-    use crypto::aead::hkdf_derive;
+    use conancrypto::aead::hkdf_derive;
     let derived = hkdf_derive::<32>(shared_secret, None, b"conan-v1-bob-ratchet")
         .expect("HKDF cannot fail with valid-length output");
     let priv_key = StaticSecret::from(derived);

@@ -16,7 +16,8 @@ use crate::{
     extras::mls_provider::ConanMlsProvider,
     mls::{Addr, ConanGroup, ConanGroupError},
 };
-use database::{
+use conan_extras::{codec::JsonCodec, generate_name};
+use conandatabase::{
     ConnectionClone, FromConnection,
     entities::{
         chat::{Chat, ChatData},
@@ -27,7 +28,6 @@ use database::{
     },
     rusqlite::Connection,
 };
-use extras::{codec::JsonCodec, generate_name};
 use openmls::{
     group::{GroupId, MlsGroup},
     prelude::{
@@ -101,7 +101,7 @@ impl CommandHandler {
         let Ok(Some(target)) = self.dbconn.get_peer_from_id(idx) else {
             _ = self
                 .msg_sen
-                .send(IPCRes::Error("Cannot find peer in database.".into()));
+                .send(IPCRes::Error("Cannot find peer in conandatabase.".into()));
             return Err("Did not find connection.".into());
         };
         ConanNotif::Text(target.name, text).notify()?;
@@ -245,11 +245,11 @@ impl CommandHandler {
         };
 
         println!("members: {:#?}", grp.get_members()?);
-        // the group is already saved in initializers database
+        // the group is already saved in initializers conandatabase
         // so it can be retrieved
         let db_group = self.dbconn.get_group_by_group_id(group_id)?;
 
-        // Inserting member in our database
+        // Inserting member in our conandatabase
         let peer = self
             .dbconn
             .get_peer_from_id(peer_idx)?

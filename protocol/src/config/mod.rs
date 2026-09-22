@@ -4,7 +4,7 @@ use clap::Parser;
 use config::{Config, FileFormat};
 
 use crate::constants::{ARTI_KEYSTORE, CACHE_PATH, CONFIG_PATH, DAEMON_SOCKET, DATABASE_PATH};
-use database::setup_db;
+use conandatabase::setup_db;
 
 #[derive(Debug, Parser)]
 #[command(

@@ -9,6 +9,7 @@ use std::{
 };
 
 use bincode::config;
+use conandatabase::entities::{group::DBGroup, peer::Peer, tuichat::TuiChat};
 use conanprotocol::{
     comm::{
         encode,
@@ -16,7 +17,6 @@ use conanprotocol::{
     },
     config::ConanConfig,
 };
-use database::entities::{group::DBGroup, peer::Peer, tuichat::TuiChat};
 use ratatui::{
     Frame, Terminal,
     layout::{Constraint, Direction, HorizontalAlignment, Layout},

@@ -1,11 +1,17 @@
 [package]
-name = "extras"
+name = "conan-extras"
 authors.workspace = true
 version.workspace = true
 license.workspace = true
 edition.workspace = true
+description = "Additional Assets for Conan"
 rust-version.workspace = true
 repository.workspace = true
+publish = true
+
+[libs]
+name = "conanextras"
+doctest = false
 
 [dependencies]
 openmls.workspace = true

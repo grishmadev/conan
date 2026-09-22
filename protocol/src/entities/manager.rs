@@ -15,7 +15,8 @@ use crate::{
     operations::{connect_as_dialer, signing_key, single_connect_as_dialer},
 };
 use arti_client::{BootstrapBehavior, TorClient, TorClientConfig, config::CfgPath};
-use database::{
+use conan_extras::{codec::JsonCodec, generate_name};
+use conandatabase::{
     ConnectionClone,
     entities::{
         group::ConnectionGroup,
@@ -25,7 +26,6 @@ use database::{
     error::DatabaseError,
     rusqlite::Connection,
 };
-use extras::{codec::JsonCodec, generate_name};
 use futures::{StreamExt, stream::BoxStream};
 use openmls::{
     group::{GroupId, MlsGroup},

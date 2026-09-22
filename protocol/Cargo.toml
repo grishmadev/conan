@@ -5,7 +5,7 @@ version.workspace = true
 license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Protocol definitions for the Conan"
+description = "Protocol definitions for Conan"
 repository.workspace = true
 publish = true
 
@@ -17,9 +17,9 @@ doctest = false
 workspace = true
 
 [dependencies]
-database.workspace = true
-extras.workspace = true
-crypto.workspace = true
+conan-database.workspace = true
+conan-extras.workspace = true
+conan-crypto.workspace = true
 arti-client.workspace = true
 tokio.workspace = true
 tokio-rustls.workspace = true

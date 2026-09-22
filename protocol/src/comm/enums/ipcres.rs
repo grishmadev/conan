@@ -1,5 +1,5 @@
 use bincode::{Decode, Encode};
-use database::entities::{group::DBGroup, peer::Peer, tuichat::TuiChat};
+use conandatabase::entities::{group::DBGroup, peer::Peer, tuichat::TuiChat};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Serialize, Deserialize)]

@@ -1,8 +1,8 @@
 use std::time::{Duration, Instant};
 
+use conandatabase::entities::tuichat::TuiChat;
 use conanprotocol::comm::enums::ipccmd::IPCCmd;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
-use database::entities::tuichat::TuiChat;
 
 use crate::{
     App,

@@ -1,4 +1,4 @@
-use database::error::DatabaseError;
+use conandatabase::error::DatabaseError;
 use thiserror::Error;
 
 #[derive(Debug, Error)]

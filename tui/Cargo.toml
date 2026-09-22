@@ -14,7 +14,7 @@ path = "src/main.rs"
 doctest = false
 
 [dependencies]
-database.workspace = true
+conan-database.workspace = true
 conan-protocol.workspace = true
 tokio.workspace = true
 tracing-subscriber.workspace = true

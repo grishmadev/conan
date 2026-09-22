@@ -1,5 +1,5 @@
-use database::{FromConnection, rusqlite::Connection};
-use extras::codec::JsonCodec;
+use conan_extras::codec::JsonCodec;
+use conandatabase::{FromConnection, rusqlite::Connection};
 use openmls::prelude::OpenMlsProvider;
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use openmls_sqlite_storage::{Codec, SqliteStorageProvider};

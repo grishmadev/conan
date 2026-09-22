@@ -1,3 +1,10 @@
+use conan_extras::generate_name;
+use conandatabase::entities::{
+    chat::{Chat, ChatData},
+    group::{ConnectionGroup, DBGroup},
+    group_chat::ConnectionGroupChat,
+    peer::{Peer, PeerData},
+};
 use conanprotocol::{
     comm::enums::{
         error::ConanError,
@@ -8,13 +15,6 @@ use conanprotocol::{
     entities::manager::Manager,
     mls::ConanGroup,
 };
-use database::entities::{
-    chat::{Chat, ChatData},
-    group::{ConnectionGroup, DBGroup},
-    group_chat::ConnectionGroupChat,
-    peer::{Peer, PeerData},
-};
-use extras::generate_name;
 use openmls::group::MlsGroup;
 use std::{
     error::Error,

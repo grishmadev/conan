@@ -1124,9 +1124,9 @@ dependencies = [
  "bincode",
  "clap",
  "color-eyre",
+ "conan-database",
  "conan-protocol",
  "crossterm",
- "database",
  "notify-rust",
  "ratatui",
  "tokio",
@@ -1141,13 +1141,58 @@ dependencies = [
  "bincode",
  "clap",
  "color-eyre",
+ "conan-database",
+ "conan-extras",
  "conan-protocol",
- "database",
- "extras",
  "openmls",
  "tokio",
  "tor-hsservice",
  "tor-llcrypto",
+]
+
+[[package]]
+name = "conan-crypto"
+version = "2.0.0"
+dependencies = [
+ "bs58",
+ "chacha20poly1305 0.11.0",
+ "ed25519-dalek",
+ "hex",
+ "hkdf 0.13.0",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "thiserror 2.0.20",
+ "x25519-dalek 2.0.1",
+ "zeroize",
+]
+
+[[package]]
+name = "conan-database"
+version = "2.0.0"
+dependencies = [
+ "bincode",
+ "chrono",
+ "conan-extras",
+ "openmls_rust_crypto",
+ "openmls_sqlite_storage",
+ "rusqlite",
+ "serde",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "conan-extras"
+version = "2.0.0"
+dependencies = [
+ "bincode",
+ "chacha20poly1305 0.11.0",
+ "openmls",
+ "openmls_rust_crypto",
+ "openmls_sqlite_storage",
+ "rand 0.10.2",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1162,11 +1207,11 @@ dependencies = [
  "chrono",
  "clap",
  "color-eyre",
+ "conan-crypto",
+ "conan-database",
+ "conan-extras",
  "config",
- "crypto",
- "database",
  "ed25519-dalek",
- "extras",
  "futures",
  "hex",
  "hkdf 0.13.0",
@@ -1445,23 +1490,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 
 [[package]]
-name = "crypto"
-version = "2.0.0"
-dependencies = [
- "bs58",
- "chacha20poly1305 0.11.0",
- "ed25519-dalek",
- "hex",
- "hkdf 0.13.0",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "thiserror 2.0.20",
- "x25519-dalek 2.0.1",
- "zeroize",
-]
-
-[[package]]
 name = "crypto-bigint"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1734,20 +1762,6 @@ checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
  "syn 3.0.3",
-]
-
-[[package]]
-name = "database"
-version = "2.0.0"
-dependencies = [
- "bincode",
- "chrono",
- "extras",
- "openmls_rust_crypto",
- "openmls_sqlite_storage",
- "rusqlite",
- "serde",
- "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -2257,20 +2271,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "extras"
-version = "2.0.0"
-dependencies = [
- "bincode",
- "chacha20poly1305 0.11.0",
- "openmls",
- "openmls_rust_crypto",
- "openmls_sqlite_storage",
- "rand 0.10.2",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -9511,8 +9511,8 @@ name = "xtask"
 version = "2.0.0"
 dependencies = [
  "chacha20poly1305 0.11.0",
+ "conan-database",
  "conan-protocol",
- "database",
  "libp2p",
  "openmls",
  "openmls_basic_credential",

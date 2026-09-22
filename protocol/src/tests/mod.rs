@@ -8,7 +8,7 @@ use crate::comm::enums::msg::Msg;
 /// Tests encryption and decryption using Double Ratchet
 fn test_cryptography() {
     use crate::operations::derive_bob_ratchet_key;
-    use crypto::ratchet::RatchetSession;
+    use conancrypto::ratchet::RatchetSession;
 
     let msg = Msg::Text("This is a test text".to_string());
 

@@ -9,12 +9,12 @@ use crate::{
 };
 use crate::{config::parse_config, operations::send};
 use arti_client::DataStream;
-use crypto::ratchet::RatchetSession;
-use database::{
+use conan_extras::generate_name;
+use conancrypto::ratchet::RatchetSession;
+use conandatabase::{
     entities::peer::{Peer, PeerData},
     rusqlite::Connection,
 };
-use extras::generate_name;
 use std::{error::Error, sync::Arc};
 use tokio::{
     io::{AsyncWriteExt, ReadHalf, WriteHalf},

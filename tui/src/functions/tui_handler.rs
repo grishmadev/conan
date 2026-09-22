@@ -3,8 +3,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use conandatabase::entities::{group::DBGroup, peer::Peer, tuichat::TuiChat};
 use conanprotocol::comm::enums::{ipccmd::IPCCmd, ipcres::IPCRes};
-use database::entities::{group::DBGroup, peer::Peer, tuichat::TuiChat};
 
 use crate::{
     App,

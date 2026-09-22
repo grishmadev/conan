@@ -1,5 +1,5 @@
+use conandatabase::entities::group::ConnectionGroup;
 use conanprotocol::config::parse_config;
-use database::entities::group::ConnectionGroup;
 use rusqlite::Connection;
 use std::error::Error;
 

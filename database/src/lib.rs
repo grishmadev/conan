@@ -2,7 +2,7 @@ pub mod entities;
 pub mod error;
 pub(crate) mod migration;
 use crate::migration::run_is_friend_migration;
-use extras::codec::JsonCodec;
+use conan_extras::codec::JsonCodec;
 use openmls_sqlite_storage::{Codec, SqliteStorageProvider};
 pub use rusqlite;
 use rusqlite::Connection;

@@ -9,7 +9,7 @@ use rand::{random, random_range};
 #[must_use]
 pub fn generate_name(range: Range<u8>) -> String {
     let len = random_range(range);
-    let vowels = [b'a', b'e', b'i', b'o', b'u'];
+    let vowels = *b"aeiou";
     let consonants: Vec<u8> = (b'a'..=b'z').filter(|c| !vowels.contains(c)).collect();
     let mut name = vec![];
     let mut next_is_vowel = random::<bool>();

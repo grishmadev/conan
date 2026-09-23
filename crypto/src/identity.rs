@@ -1,9 +1,9 @@
 //! Identity management utilities for conan.
 
 use super::aead::{KeyMaterial, hkdf_derive};
-use ed25519_dalek::{
-    Signature, Signer, SigningKey, Verifier, VerifyingKey, ed25519::signature::rand_core::OsRng,
-};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use getrandom::SysRng;
+use rand::rand_core::UnwrapErr;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use zeroize::ZeroizeOnDrop;
@@ -104,7 +104,8 @@ impl Identity {
     /// Generates a new [`Identity`] using the OS random number generator.
     /// # Errors
     pub fn generate() -> Result<Self, IdentityError> {
-        let signing_key = SigningKey::generate(&mut OsRng);
+        let mut csrng = UnwrapErr(SysRng);
+        let signing_key = SigningKey::generate(&mut csrng);
         let verifying_key = signing_key.verifying_key();
         let public = PublicIdentity::from_verifying_key(&verifying_key);
         Ok(Self {

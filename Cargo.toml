@@ -41,9 +41,10 @@ chacha20poly1305 = { version = "0.11.0-rc.3", features = [
   "getrandom",
   "arrayvec",
 ] }
+getrandom = "0.4.3"
 bincode = { version = "2.0.1", features = ["serde"] }
-x25519-dalek = { version = "2.0.1", features = ["static_secrets"] }
-ed25519-dalek = { version = "2.2.0", features = ["hazmat", "rand_core"] }
+x25519-dalek = { version = "3.0.0", features = ["static_secrets", "getrandom"] }
+ed25519-dalek = { version = "3.0.0", features = ["hazmat", "rand_core"] }
 ratatui = "0.30.2"
 crossterm = "0.29.0"
 clap = { version = "4.6.1", features = ["derive"] }

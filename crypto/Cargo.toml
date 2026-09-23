@@ -24,6 +24,8 @@ zeroize.workspace = true
 bs58.workspace = true
 sha2.workspace = true
 hex.workspace = true
+rand.workspace = true
+getrandom.workspace = true
 
 [lints]
 workspace = true

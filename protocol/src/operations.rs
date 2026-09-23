@@ -13,7 +13,7 @@ use conancrypto::{
 use conandatabase::entities::peer::{Peer, PeerData};
 use conandatabase::error::DatabaseError;
 use conandatabase::rusqlite::Connection;
-use ed25519_dalek::{Signature, Verifier, VerifyingKey, ed25519::signature::rand_core::OsRng};
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use futures::AsyncReadExt as FutureRead;
 use safelog::DisplayRedacted;
 use ssh_encoding::Decode;
@@ -174,7 +174,7 @@ pub async fn listener_actor(
     let Msg::PublicKey(remote_public_key) = recv_msg else {
         return Err("Did not receive remote public key. aborting.".into());
     };
-    let local_private_key = EphemeralSecret::random_from_rng(OsRng);
+    let local_private_key = EphemeralSecret::random();
     let local_public_key = PublicKey::from(&local_private_key).to_bytes();
     let signing_key = signing_key().await?;
 
@@ -269,7 +269,7 @@ where
     R: AsyncReadExt,
     W: AsyncWriteExt,
 {
-    let local_private_key = EphemeralSecret::random_from_rng(OsRng);
+    let local_private_key = EphemeralSecret::random();
     let local_public_key = PublicKey::from(&local_private_key);
     // writing x25519 public key to stream
     let msg = Msg::PublicKey(local_public_key.to_bytes());

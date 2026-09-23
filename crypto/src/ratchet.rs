@@ -7,7 +7,6 @@
 use super::aead::{
     EncryptedMessage, KeyMaterial, MessageKey, decrypt_with_aad, encrypt_with_aad, hkdf_derive,
 };
-use ed25519_dalek::ed25519::signature::rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
@@ -311,7 +310,7 @@ impl RatchetSession {
         let mut root_key = RootKey::from_bytes(root_key_bytes);
 
         // Generate ephemeral DH keypair for the first ratchet step.
-        let local_secret = StaticSecret::random_from_rng(OsRng);
+        let local_secret = StaticSecret::random();
         let local_public = X25519PublicKey::from(&local_secret);
 
         // Perform first DH to derive the initial sending chain.
@@ -521,7 +520,7 @@ impl RatchetSession {
         self.recv_chain = Some(recv_chain_key);
 
         // Send direction: generate new ephemeral DH keypair, advance root key.
-        let new_secret = StaticSecret::random_from_rng(OsRng);
+        let new_secret = StaticSecret::random();
         let new_public = X25519PublicKey::from(&new_secret);
         if self.next_header_key_send.is_some() {
             self.header_key_send = self.next_header_key_send.take();
@@ -595,7 +594,7 @@ mod tests {
 
     fn setup() -> (RatchetSession, RatchetSession) {
         let shared_secret = [0xABu8; 32];
-        let bob_dh = StaticSecret::random_from_rng(OsRng);
+        let bob_dh = StaticSecret::random();
         let bob_dh_pub = X25519PublicKey::from(&bob_dh);
         let alice = RatchetSession::init_sender(&shared_secret, &bob_dh_pub.to_bytes()).unwrap();
         let bob = RatchetSession::init_receiver(&shared_secret, bob_dh).unwrap();
@@ -689,7 +688,7 @@ mod tests {
 
     #[test]
     fn wrong_shared_secret_fails() {
-        let bob_dh = StaticSecret::random_from_rng(OsRng);
+        let bob_dh = StaticSecret::random();
         let bob_dh_pub = X25519PublicKey::from(&bob_dh);
         let mut alice = RatchetSession::init_sender(&[0xAAu8; 32], &bob_dh_pub.to_bytes()).unwrap();
         let mut bob = RatchetSession::init_receiver(&[0xBBu8; 32], bob_dh).unwrap();

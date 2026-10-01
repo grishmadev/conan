@@ -18,7 +18,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let signing_key = signing_key().await?;
     let manager = Manager::create(msg_sender.clone(), config.clone(), worker_sender).await?;
     let mut handler = ServerHandler::setup(manager, signing_key)?;
-    println!("All Set.");
     loop {
         if let Ok(cmd) = worker_receiver.recv() {
             handler.handle_commands(cmd)?;

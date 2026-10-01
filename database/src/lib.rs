@@ -131,7 +131,8 @@ pub fn setup_db(db_path: &str) -> Result<(), Box<dyn std::error::Error>> {
         CREATE TABLE IF NOT EXISTS group_to_peer (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             peer_id INTEGER NOT NULL REFERENCES peer(id) ON DELETE CASCADE,
-            group_id INTEGER NOT NULL REFERENCES my_group(id) ON DELETE CASCADE
+            group_id INTEGER NOT NULL REFERENCES my_group(id) ON DELETE CASCADE,
+            is_admin BOOLEAN DEFAULT FALSE
         );",
         (),
     )?;

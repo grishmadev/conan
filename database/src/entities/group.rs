@@ -2,6 +2,8 @@ use bincode::{Decode, Encode};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
+use crate::entities::{member::GroupMember, peer::PeerData};
+
 #[derive(Debug, Encode, Decode, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DBGroup {
     pub id: u16,
@@ -29,6 +31,7 @@ pub trait ConnectionGroup {
     /// # Errors
     fn list_groups(&self) -> Result<Vec<DBGroup>, rusqlite::Error>;
     /// Insert a group
+    /// `Note`: Also inserts self to group-member relation
     /// # Errors
     fn insert_group(&self, group: DBGroup) -> Result<DBGroup, rusqlite::Error>;
     /// Delete a group
@@ -50,18 +53,13 @@ impl ConnectionGroup for Connection {
         let mut stmt = self.prepare("SELECT * FROM my_group")?;
         let rows = stmt.query_map([], |r| {
             Ok(DBGroup {
-                id: r.get(0)?,
-                group_id: r.get(1)?,
-                name: r.get(2)?,
+                id: r.get("id")?,
+                group_id: r.get("group_id")?,
+                name: r.get("name")?,
                 connected: false,
             })
         })?;
-        let mut result = vec![];
-        for r in rows {
-            let r = r?;
-            result.push(r);
-        }
-        Ok(result)
+        rows.collect()
     }
 
     fn insert_group(&self, group: DBGroup) -> Result<DBGroup, rusqlite::Error> {
@@ -81,6 +79,10 @@ impl ConnectionGroup for Connection {
                         connected: false,
                     })
                 })?;
+                let me = self
+                    .get_peer_from_id(1)?
+                    .ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+                self.insert_member(row.id, me, true, true)?;
                 Some(row)
             }
             Err(e) => return Err(e),

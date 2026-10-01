@@ -120,28 +120,22 @@ impl PeerData for Connection {
     }
 
     fn insert_peer(&self, peer: Peer) -> Result<Peer, rusqlite::Error> {
-        let mut stmt =
-            self.prepare("INSERT INTO peer (name, address, is_friend) VALUES (?1, ?2, ?3)")?;
-        match stmt.execute((&peer.name, &peer.address, &peer.is_friend)) {
-            Ok(s) => {
-                if s == 0 {
-                    return Err(rusqlite::Error::QueryReturnedNoRows);
-                }
-                let stmt = self
-                    .prepare("SELECT * FROM peer WHERE name = ?1 AND address = ?2")?
-                    .query_one((&peer.name, &peer.address), |r| {
-                        Ok(Peer {
-                            id: r.get(0)?,
-                            name: r.get(1)?,
-                            address: r.get(2)?,
-                            is_friend: r.get(3)?,
-                            connected: false,
-                        })
-                    });
-                Ok(stmt?)
-            }
-            Err(e) => Err(e),
-        }
+        self.prepare(
+            "
+            INSERT INTO peer (name, address, is_friend)
+            VALUES (?1, ?2, ?3)
+            RETURNING id, name, address, is_friend
+        ",
+        )?
+        .query_one((&peer.name, &peer.address, &peer.is_friend), |r| {
+            Ok(Peer {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                address: r.get(2)?,
+                is_friend: r.get(3)?,
+                connected: false,
+            })
+        })
     }
 
     fn delete_peer(&self, id: u16) -> Result<(), rusqlite::Error> {

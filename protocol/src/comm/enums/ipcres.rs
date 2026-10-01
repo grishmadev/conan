@@ -37,11 +37,13 @@ pub enum IPCRes {
     /// Response for List of groups
     GroupList(Vec<DBGroup>),
     /// Response for Group Chats
-    GroupChatList {
+    GroupInfo {
         /// Group index
         group_idx: u16,
         /// List of chats
         chats: Vec<TuiChat>,
+        /// List of members of the group Vec(peer, `is_admin`)
+        members: Vec<(Peer, bool)>,
     },
     /// Response for Group Renamed (group id)
     RenamedGroup(u16),

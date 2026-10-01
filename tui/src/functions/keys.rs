@@ -2,7 +2,11 @@ use std::time::{Duration, Instant};
 
 use conandatabase::entities::tuichat::TuiChat;
 use conanprotocol::comm::enums::ipccmd::IPCCmd;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{
+    self,
+    Event::{self, Key},
+    KeyCode, KeyEvent, KeyModifiers,
+};
 
 use crate::{
     App,
@@ -32,13 +36,17 @@ pub trait Keys {
     /// # Errors
     fn handle_confirm_screen(&mut self, key: KeyEvent)
     -> impl Future<Output = std::io::Result<()>>;
-    /// Handles Keys for [`Screen::CommandPallete`]
+    /// Handles Keys for [`Screen::CommandPalette`]
     ///
     /// # Errors
     fn handle_command_palette(
         &mut self,
         key: KeyEvent,
     ) -> impl Future<Output = std::io::Result<()>>;
+    /// Handles Keys for [`Screen::GroupDescription`]
+    ///
+    /// # Errors
+    async fn handle_grpdsc_screen(&mut self, key: KeyEvent) -> std::io::Result<()>;
     /// Toggles tab when called
     fn toggle_tab(&mut self);
     /// Triggers next idx when called
@@ -76,6 +84,9 @@ impl Keys for App {
                 Screen::CommandPalette { .. } => {
                     self.handle_command_palette(key).await?;
                 }
+                Screen::GroupDescription(..) => {
+                    self.handle_grpdsc_screen(key).await?;
+                }
             }
         }
         Ok(())
@@ -93,7 +104,7 @@ impl Keys for App {
                     *cursor_pos += 1;
                 }
             }
-            KeyCode::Char('p') if key.modifiers == KeyModifiers::CONTROL => {
+            KeyCode::Char(':') => {
                 if self.active_screen == Screen::None {
                     self.active_screen = Screen::CommandPalette {
                         options: vec![],
@@ -101,6 +112,13 @@ impl Keys for App {
                         cursor_pos: 0,
                     };
                 }
+            }
+            #[allow(clippy::cast_possible_truncation)]
+            KeyCode::Char(' ') if matches!(self.tab, Tab::Contact) => {
+                let (false, Some(idx)) = self.current_contact() else {
+                    return Ok(());
+                };
+                self.active_screen = Screen::GroupDescription(idx as u16);
             }
             KeyCode::Char('D' | 'd')
                 if matches!(self.tab, Tab::Contact)
@@ -564,6 +582,19 @@ impl Keys for App {
                     self.notification = Some(("Invalid Command".to_string(), Instant::now()));
                 }
             },
+            _ => {}
+        }
+        Ok(())
+    }
+
+    async fn handle_grpdsc_screen(&mut self, key: KeyEvent) -> std::io::Result<()> {
+        let Screen::GroupDescription(idx) = self.active_screen else {
+            return Ok(());
+        };
+        match key.code {
+            KeyCode::Esc => {
+                self.active_screen = Screen::None;
+            }
             _ => {}
         }
         Ok(())

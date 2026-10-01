@@ -254,7 +254,7 @@ impl CommandHandler {
             .dbconn
             .get_peer_from_id(peer_idx)?
             .ok_or("Unknown Peer dropping connection")?;
-        self.dbconn.insert_member(db_group.id, peer, true)?;
+        self.dbconn.insert_member(db_group.id, peer, true, false)?;
 
         ConanNotif::Sys("Group Exchange Complete.".into()).notify()?;
         Ok(())

@@ -23,7 +23,7 @@ pub enum IPCCmd {
     /// Get Chat List for a given contact
     ChatList { peer_id: u16, msg_amount: u8 },
     /// Get Group Chats for a given group
-    GroupChatList {
+    GroupInfo {
         /// Group id
         group_idx: u16,
         /// Last amount of messages to get

@@ -21,6 +21,7 @@ use conandatabase::{
     entities::{
         group::ConnectionGroup,
         group_chat::{ConnectionGroupChat, GroupChat},
+        member::GroupMember,
         peer::{Peer, PeerData},
     },
     error::DatabaseError,
@@ -544,9 +545,13 @@ impl Manager {
             .dbconn
             .get_peer_from_id(peer_idx)?
             .ok_or(ConanError::NotFound)?;
+        let dbgrp = self
+            .dbconn
+            .get_group_by_group_id(&grp.group_id().to_vec())?;
         let (signer, _, _) = MlsGroup::signer_from_expanded_key(&self.identity_key);
         let commit = grp.remove_member(&peer, &self.provider, &signer)?;
         self.send_commit(grp, &commit)?;
+        self.dbconn.remove_member(peer.id, dbgrp.id)?;
         Ok(())
     }
 

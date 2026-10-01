@@ -32,9 +32,9 @@ use tokio::{
 
 use crate::{
     components::{
-        command_palette::CommandPalette, confirmation_screen::ConfirmScreen, input::InputScreen,
-        loading_screen::LoadingScreen, main_component::MainComponents, notification::Notification,
-        welcome::WelcomeScreen,
+        command_palette::CommandPalette, confirmation_screen::ConfirmScreen,
+        group_description::GroupDescription, input::InputScreen, loading_screen::LoadingScreen,
+        main_component::MainComponents, notification::Notification, welcome::WelcomeScreen,
     },
     functions::{LoadingMode, keys::Keys, tui_handler::ManageIPC},
     matches::{Mode, Screen, Tab},
@@ -57,6 +57,8 @@ pub struct App {
     pub contacts: Vec<Peer>,
     /// List of all the groups
     pub groups: Vec<DBGroup>,
+    /// List of group members when a group is selected in vec<(peer, is admin)>
+    pub group_members: Option<Vec<(Peer, bool)>>,
     /// Current contact
     pub contact_idx: ListState,
     /// All the Chats for the current contact/group
@@ -113,6 +115,7 @@ impl App {
             stream,
             contacts: vec![],
             groups: vec![],
+            group_members: None,
             contact_idx: ListState::default(),
             chats: vec![],
             chat_buf: String::new(),
@@ -167,7 +170,7 @@ impl App {
             if let Ok(s) = self.receiver.try_recv() {
                 match s {
                     IPCCmd::PingChat => {
-                        self.update_chats().await?;
+                        self.update_state().await?;
                     }
                     cmd => {
                         self.send(cmd).await?;
@@ -263,6 +266,9 @@ impl App {
             } => {
                 self.render_command_palette(f, text, cursor_pos);
             }
+            Screen::GroupDescription(idx) => {
+                self.render_group_description(f, idx);
+            }
         }
     }
 
@@ -310,7 +316,7 @@ impl App {
 
     /// Updates chats on screen by calling database via socket
     /// # Errors
-    pub async fn update_chats(&mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn update_state(&mut self) -> Result<(), Box<dyn Error>> {
         let (is_peer, idx) = self.current_contact();
         // Something is selected
         if let Some(cur_idx) = idx {
@@ -322,7 +328,7 @@ impl App {
                 })
                 .await?;
             } else if let Some(grp) = self.groups.get(cur_idx) {
-                self.send(IPCCmd::GroupChatList {
+                self.send(IPCCmd::GroupInfo {
                     group_idx: grp.id,
                     msg_amount: 50,
                 })

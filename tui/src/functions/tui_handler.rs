@@ -45,10 +45,11 @@ pub trait ManageIPC {
     /// # Errors
     fn chat_list(&mut self, peer_id: u16, chats: Vec<TuiChat>) -> Result<(), Box<dyn Error>>;
     /// # Errors
-    fn group_chat_list(
+    fn group_info(
         &mut self,
         group_idx: u16,
         chats: Vec<TuiChat>,
+        members: Vec<(Peer, bool)>,
     ) -> Result<(), Box<dyn Error>>;
     /// # Errors
     fn renamed_peer(&mut self, idx: u16) -> Result<(), Box<dyn Error>>;
@@ -92,8 +93,12 @@ impl ManageIPC for App {
                 IPCRes::ChatList { peer_id, chats } => {
                     self.chat_list(peer_id, chats)?;
                 }
-                IPCRes::GroupChatList { group_idx, chats } => {
-                    self.group_chat_list(group_idx, chats)?;
+                IPCRes::GroupInfo {
+                    group_idx,
+                    chats,
+                    members,
+                } => {
+                    self.group_info(group_idx, chats, members)?;
                 }
                 IPCRes::RenamedPeer(idx) => {
                     self.renamed_peer(idx)?;
@@ -230,10 +235,11 @@ impl ManageIPC for App {
         Ok(())
     }
 
-    fn group_chat_list(
+    fn group_info(
         &mut self,
         group_idx: u16,
         chats: Vec<TuiChat>,
+        members: Vec<(Peer, bool)>,
     ) -> Result<(), Box<dyn Error>> {
         let (false, Some(idx)) = self.current_contact() else {
             return Ok(());
@@ -245,6 +251,7 @@ impl ManageIPC for App {
             return Ok(());
         }
         self.chats = chats;
+        self.group_members = Some(members);
         Ok(())
     }
 

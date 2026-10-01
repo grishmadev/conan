@@ -3,6 +3,7 @@ use conandatabase::entities::{
     chat::{Chat, ChatData},
     group::{ConnectionGroup, DBGroup},
     group_chat::ConnectionGroupChat,
+    member::GroupMember,
     peer::{Peer, PeerData},
 };
 use conanprotocol::{
@@ -107,7 +108,7 @@ impl ServerHandler {
             IPCCmd::GroupList => {
                 self.group_list()?;
             }
-            IPCCmd::GroupChatList {
+            IPCCmd::GroupInfo {
                 group_idx,
                 msg_amount,
             } => {
@@ -257,12 +258,11 @@ impl ServerHandler {
 
     fn new_group(&self, name: Option<String>) -> Result<(), Box<dyn Error>> {
         let manager = &self.manager;
-        let self_link = manager
+        let me = manager
             .dbconn
             .get_peer_from_id(1)?
-            .ok_or("Cannot find self link")?
-            .address;
-        let new_group = MlsGroup::build(&self.signing_key, &self_link)?;
+            .ok_or("Cannot find self link")?;
+        let new_group = MlsGroup::build(&self.signing_key, &me.address)?;
         let name = if let Some(name) = name {
             name
         } else {
@@ -274,6 +274,12 @@ impl ServerHandler {
     }
 
     fn add_to_group(&self, group_idx: u16, peer_idx: u16) -> Result<(), Box<dyn Error>> {
+        if !self.manager.peers.read().unwrap().contains_key(&peer_idx) {
+            self.manager
+                .msg_sender
+                .send(IPCRes::Error("Peer not conneced.".into()))?;
+            return Ok(());
+        }
         self.manager.make_peer_join_group(peer_idx, group_idx)?;
         Ok(())
     }
@@ -331,9 +337,12 @@ impl ServerHandler {
             .manager
             .dbconn
             .get_tuichats_by_group_idx(group_idx, msg_amount)?;
-        self.manager
-            .msg_sender
-            .send(IPCRes::GroupChatList { group_idx, chats })?;
+        let members = self.manager.dbconn.list_members(group_idx)?;
+        self.manager.msg_sender.send(IPCRes::GroupInfo {
+            group_idx,
+            chats,
+            members,
+        })?;
         Ok(())
     }
 

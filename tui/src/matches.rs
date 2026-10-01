@@ -1,6 +1,5 @@
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
-
 use crate::functions::{ConfirmMode, InputMode, LoadingMode};
+use crossterm::event::KeyEvent;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -77,26 +76,6 @@ pub enum Screen {
         cursor_pos: usize,
         options: Vec<String>,
     },
+    GroupDescription(u16),
     None,
-}
-
-#[must_use]
-pub fn get_key_event(cmd: TuiCommand) -> KeyEvent {
-    match cmd {
-        TuiCommand::Quit => KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
-        TuiCommand::Other(event) => event,
-    }
-}
-
-#[must_use]
-pub fn get_key(cmd: TuiCommand) -> Event {
-    Event::Key(get_key_event(cmd))
-}
-
-#[must_use]
-pub fn get_tuicmd(key: KeyEvent) -> TuiCommand {
-    match key.code {
-        KeyCode::Char('q') => TuiCommand::Quit,
-        _ => TuiCommand::Other(key),
-    }
 }

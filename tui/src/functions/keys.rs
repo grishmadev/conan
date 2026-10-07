@@ -46,7 +46,7 @@ pub trait Keys {
     /// Handles Keys for [`Screen::GroupDescription`]
     ///
     /// # Errors
-    async fn handle_grpdsc_screen(&mut self, key: KeyEvent) -> std::io::Result<()>;
+    fn handle_grpdsc_screen(&mut self, key: KeyEvent) -> impl Future<Output = std::io::Result<()>>;
     /// Toggles tab when called
     fn toggle_tab(&mut self);
     /// Triggers next idx when called

@@ -1,0 +1,4 @@
+socket-path = "{home}/.conan/conan.socket"
+key-path = "{home}/.conan/default"
+cache-path = "{home}/.conan/cache"
+database-path = "{home}/.conan/database"

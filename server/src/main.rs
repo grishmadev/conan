@@ -15,9 +15,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (mut master, msg_sender) = Master::build(None, worker_sender.clone());
     println!("Starting Master...");
     master.setup_communication(&config)?;
-    let signing_key = signing_key().await?;
     let manager = Manager::create(msg_sender.clone(), config.clone(), worker_sender).await?;
+    println!("Created Manager");
+    let signing_key = signing_key().await?;
+    println!("Signing key");
     let mut handler = ServerHandler::setup(manager, signing_key)?;
+    println!("Created Server Handler");
     loop {
         if let Ok(cmd) = worker_receiver.recv() {
             handler.handle_commands(cmd)?;

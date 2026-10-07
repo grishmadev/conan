@@ -1,5 +1,5 @@
 use bincode::config as cfg;
-use std::{fs, sync::mpsc};
+use std::{fs, path::Path, sync::mpsc};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::UnixListener,
@@ -47,20 +47,32 @@ impl Master {
         &mut self,
         config: &ConanConfig,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let sock_path = config.socket_path.clone();
-        let mut sock_dir = sock_path.split('/').collect::<Vec<_>>();
-        sock_dir.pop();
-        _ = fs::create_dir_all(sock_dir.join("/"));
-        if let Err(e) = fs::remove_file(&sock_path) {
-            println!("fs error: {e}");
+        let sock_path = Path::new(&config.socket_path);
+        println!("Socket path: {}", sock_path.display());
+        if let Some(parent_dir) = sock_path.parent()
+            && !parent_dir.as_os_str().is_empty()
+            && !parent_dir.exists()
+        {
+            println!("Parent path: {}", parent_dir.display());
+            if let Err(e) = fs::create_dir_all(parent_dir) {
+                eprintln!("Error creating directory: {e:?}");
+            }
         }
-        let listener = match UnixListener::bind(&sock_path) {
+
+        if sock_path.exists()
+            && let Err(e) = fs::remove_file(sock_path)
+        {
+            eprintln!("Error removing file: {e:?}");
+        }
+
+        let listener = match UnixListener::bind(sock_path) {
             Ok(s) => s,
             Err(e) => {
-                println!("Unix Error: {e}");
+                println!("Binding Error: {e}");
                 return Ok(());
             }
         };
+
         let msg_rec = self.msg_receiver.resubscribe();
         let worker_sen = self.worker_sender.clone();
         tokio::spawn(async move {

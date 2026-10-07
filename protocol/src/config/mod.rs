@@ -1,4 +1,4 @@
-use std::{env, fs, process};
+use std::{env, error::Error, fs, path::Path, process};
 
 use clap::Parser;
 use config::{Config, FileFormat};
@@ -42,6 +42,29 @@ pub struct ConanConfig {
     pub db_path: String,
 }
 
+const DEFAULT_CONFIG_CONTENT: &str = include_str!("./default_config.toml");
+
+fn create_default_config(config_path: &str) -> Result<(), Box<dyn Error>> {
+    let home_dir = env::home_dir()
+        .ok_or("Failed to get home directory.")?
+        .to_string_lossy()
+        .to_string();
+    let config_content = DEFAULT_CONFIG_CONTENT.replace("{home}", &home_dir);
+    println!("conf content: {config_content}");
+    let path = Path::new(config_path);
+    if let Some(parent) = path.parent() {
+        if !fs::exists(parent)? {
+            println!(
+                "Config Directory doesn't exist. Creating {}.",
+                parent.display()
+            );
+        }
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(config_path, config_content)?;
+    Ok(())
+}
+
 /// Function to decide final config
 ///
 /// # Errors
@@ -55,19 +78,36 @@ pub fn parse_config() -> Result<ConanConfig, Box<dyn std::error::Error>> {
     } else {
         default_config_path
     };
-    let config = match Config::builder()
-        .add_source(config::File::new(&config_path, FileFormat::Toml))
-        .build()
-    {
-        Ok(s) => Some(s),
-        Err(e) => {
-            eprintln!("Config Error, {e}\nUsing default.");
-            let mut conan_dir = home_path.clone();
-            conan_dir.push_str("/.conan");
-            _ = fs::create_dir_all(&conan_dir);
-            None
+    let mut config: Option<Config> = None;
+    for i in 0..3 {
+        let file = match Config::builder()
+            .add_source(config::File::new(&config_path, FileFormat::Toml))
+            .build()
+        {
+            Ok(s) => Some(s),
+            Err(e) => {
+                eprintln!("Config Error, Using default.\n{e:?}");
+                // creating default config
+                create_default_config(&config_path)?;
+                // creating space for other needed files (socket, database, keys)
+                let mut conan_dir = home_path.clone();
+                conan_dir.push_str("/.conan");
+                _ = fs::create_dir_all(&conan_dir);
+                None
+            }
+        };
+        if file.is_some() {
+            config = file;
+            break;
         }
-    };
+        if i <= 2 {
+            println!("Retrying: [{i}/3]");
+        }
+    }
+    if config.is_none() {
+        eprintln!("Could not initialize Config. Sorry!");
+        process::exit(1);
+    }
     let socket_path = if let Some(s) = args.socket {
         s
     } else if let Some(ref s) = config
@@ -142,4 +182,21 @@ pub fn parse_config() -> Result<ConanConfig, Box<dyn std::error::Error>> {
     };
 
     Ok(res)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use crate::{config::create_default_config, constants::CONFIG_PATH};
+
+    #[test]
+    fn test_config_creation() {
+        let config_path = "./";
+        create_default_config(config_path).unwrap();
+        let file_path = format!("{config_path}{CONFIG_PATH}");
+        let exists = fs::exists(&file_path).unwrap();
+        assert!(exists);
+        fs::remove_file(&file_path).unwrap();
+    }
 }

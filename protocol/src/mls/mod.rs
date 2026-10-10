@@ -10,7 +10,10 @@ use conandatabase::ConnectionClone;
 use conandatabase::entities::peer::Peer;
 use conandatabase::{FromConnection, rusqlite::Connection};
 use ed25519_dalek::{SigningKey, VerifyingKey};
-use openmls::prelude::{Credential, Extension, Extensions, MlsMessageOut, UnknownExtension};
+use openmls::extensions::ExtensionType;
+use openmls::prelude::{
+    Capabilities, Credential, Extension, Extensions, MlsMessageOut, UnknownExtension,
+};
 use openmls::{
     group::{MlsGroup, MlsGroupCreateConfigBuilder, MlsGroupJoinConfig, StagedWelcome},
     prelude::{
@@ -130,6 +133,13 @@ impl ConanGroup for MlsGroup {
 
         let admins = vec![self_link.to_string()];
         let admins_ser = to_bytes(&admins)?;
+        let capabilities = Capabilities::new(
+            None,
+            None,
+            Some(&[ExtensionType::Unknown(MLS_ADMIN_ID)]),
+            None,
+            None,
+        );
         let mut extensions = Extensions::empty();
         extensions.add(Extension::Unknown(
             MLS_ADMIN_ID,
@@ -138,6 +148,7 @@ impl ConanGroup for MlsGroup {
         let grp_config = MlsGroupCreateConfigBuilder::default()
             .use_ratchet_tree_extension(true)
             .with_group_context_extensions(extensions)
+            .capabilities(capabilities)
             .build();
 
         let group = MlsGroup::new(&provider, &signer, &grp_config, credential_with_key)?;
@@ -154,8 +165,12 @@ impl ConanGroup for MlsGroup {
         // NOTE: Now, don't be a smart ass and edit this line to bypass admin privilege
         // Every Commit is verified by every member
         // And they WILL find out if you pass an illegal action in the group
-        self.am_i_admin()?;
+        println!("checkpoint 1");
         let mut admins = self.admins()?;
+        // Check if there's admin in group and add if none
+        println!("admins: {admins:?}");
+        self.am_i_admin()?;
+        println!("checkpoint 2");
         admins.push(peer.address.clone());
         let mut extensions = Extensions::empty();
         extensions.add(Extension::Unknown(
@@ -190,7 +205,9 @@ impl ConanGroup for MlsGroup {
         signer: &SignatureKeyPair,
         key_package: &KeyPackage,
     ) -> Result<(MlsMessageOut, MlsMessageOut), Box<dyn Error>> {
+        println!("Add member called");
         self.am_i_admin()?;
+        println!("checkpoint 3");
         let key_packages = core::slice::from_ref(key_package);
         let (commit, welcome, _) = self.add_members(provider, signer, key_packages)?;
         Ok((commit, welcome))
@@ -217,7 +234,7 @@ impl ConanGroup for MlsGroup {
         let Some(UnknownExtension(data)) = self.extensions().unknown(MLS_ADMIN_ID) else {
             return Err(ConanGroupError::AdminsNotFound);
         };
-        let Ok(data_des) = serde_json::from_slice::<Vec<String>>(data) else {
+        let Ok(data_des) = from_bytes(data) else {
             return Err(ConanGroupError::Extraction);
         };
         Ok(data_des)
@@ -225,6 +242,10 @@ impl ConanGroup for MlsGroup {
 
     fn is_admin(&self, addr: &str) -> Result<bool, ConanGroupError> {
         let admins = self.admins()?;
+        println!("is_admin: {admins:?}");
+        if admins.is_empty() {
+            return Ok(true);
+        }
         if !admins.contains(&addr.into()) {
             return Ok(false);
         }

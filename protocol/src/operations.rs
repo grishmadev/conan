@@ -61,15 +61,12 @@ fn handshake_decrypt(
 /// # Panics
 pub async fn signing_key() -> Result<ExpandedKeypair, Box<dyn Error>> {
     let config = parse_config()?;
-    println!("Checkpoint 1");
     let mut key_store_path = config.arti_key_store;
     key_store_path.push_str(ARTI_PRIVATE_KEY);
     let key_store_path = Path::new(&key_store_path);
-    println!("key store path: {:?}", key_store_path.display());
     let mut signing_file = File::open(key_store_path)?;
     let mut content = String::new();
     signing_file.read_to_string(&mut content)?;
-    println!("signer content: {content:?}");
     let filtered_content = content
         .lines()
         .filter(|l| !l.contains("---"))

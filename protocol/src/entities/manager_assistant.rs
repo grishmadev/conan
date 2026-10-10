@@ -144,6 +144,7 @@ impl CommandHandler {
             return Err(ConanGroupError::NotFound.into());
         };
         let mut groups = self.groups.write().unwrap();
+        println!("groups: {groups:?}");
         let (_grp_idx, target_group) = if let Some(target_group) = groups
             .iter_mut()
             .find(|f| f.1.group_id().as_slice() == group_id)
@@ -311,7 +312,7 @@ impl CommandHandler {
                 };
                 self.dbconn.insert_group_chat(gc)?;
             }
-            ProcessedMessageContent::StagedCommitMessage(msg) => {
+            ProcessedMessageContent::StagedCommitMessage(commit) => {
                 if !group.is_admin(&sender_addr)? {
                     let db_peer = self
                         .dbconn
@@ -323,7 +324,7 @@ impl CommandHandler {
                     )))?;
                     return Err(ConanGroupError::NotAdmin.into());
                 }
-                group.merge_staged_commit(&self.provider, *msg)?;
+                group.merge_staged_commit(&self.provider, *commit)?;
             }
             _ => {}
         }

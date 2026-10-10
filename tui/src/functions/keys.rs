@@ -592,7 +592,7 @@ impl Keys for App {
             return Ok(());
         };
         match key.code {
-            KeyCode::Esc => {
+            KeyCode::Esc | KeyCode::Char(' ') => {
                 self.active_screen = Screen::None;
             }
             _ => {}

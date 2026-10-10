@@ -13,14 +13,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let config = parse_config()?;
     let (worker_sender, worker_receiver) = std::sync::mpsc::channel::<IPCCmd>();
     let (mut master, msg_sender) = Master::build(None, worker_sender.clone());
-    println!("Starting Master...");
+    println!("Starting Master..");
     master.setup_communication(&config)?;
+    println!("Started Master.\n\rStarting Manager..");
     let manager = Manager::create(msg_sender.clone(), config.clone(), worker_sender).await?;
-    println!("Created Manager");
+    println!("Started Manager.");
     let signing_key = signing_key().await?;
-    println!("Signing key");
     let mut handler = ServerHandler::setup(manager, signing_key)?;
-    println!("Created Server Handler");
     loop {
         if let Ok(cmd) = worker_receiver.recv() {
             handler.handle_commands(cmd)?;

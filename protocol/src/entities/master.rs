@@ -48,12 +48,11 @@ impl Master {
         config: &ConanConfig,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let sock_path = Path::new(&config.socket_path);
-        println!("Socket path: {}", sock_path.display());
         if let Some(parent_dir) = sock_path.parent()
             && !parent_dir.as_os_str().is_empty()
             && !parent_dir.exists()
         {
-            println!("Parent path: {}", parent_dir.display());
+            println!("Socket Doesn't exist. Creating one.");
             if let Err(e) = fs::create_dir_all(parent_dir) {
                 eprintln!("Error creating directory: {e:?}");
             }

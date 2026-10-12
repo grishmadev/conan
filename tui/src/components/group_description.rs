@@ -1,6 +1,8 @@
 use ratatui::{
     Frame,
-    layout::Constraint,
+    layout::{Constraint, HorizontalAlignment},
+    style::Stylize,
+    text::Line,
     widgets::{Block, Borders, Cell, Clear, Row, Table},
 };
 
@@ -16,25 +18,41 @@ impl GroupDescription for App {
         let box_area = area
             .centered_horizontally(Constraint::Percentage(80))
             .centered_vertically(Constraint::Percentage(80));
-        let block = Block::default()
-            .title(" Group Description ")
-            .borders(Borders::ALL);
+        let title = self.groups.get(idx as usize).map_or_else(
+            || " Group Description ".to_string(),
+            |g| format!(" {} ", g.name),
+        );
+        let block = Block::default().title(title).borders(Borders::ALL);
         let table_area = block.inner(box_area);
-        let (Some(group), Some(members)) =
-            (self.groups.get(idx as usize), self.group_members.as_ref())
-        else {
+
+        let Some(members) = self.group_members.as_ref() else {
             return;
         };
-        let mut rows = Vec::with_capacity(members.len());
-        for (member, is_admin) in members {
-            let privilege = if *is_admin { "Admin" } else { "Member" };
-            rows.push(Row::new([member.name.clone(), privilege.into()]));
-        }
-        let table = Table::default()
-            .header(Row::new(vec![Cell::from("Name"), Cell::from("Privilege")]))
-            .rows(rows);
         f.render_widget(Clear, box_area);
         f.render_widget(block, box_area);
-        f.render_widget(table, table_area);
+        let mut rows = Vec::new();
+        if !members.is_empty() {
+            for (member, is_admin) in members {
+                let privilege = if *is_admin {
+                    Cell::from("Admin").green().bold()
+                } else {
+                    Cell::from("Member").cyan()
+                };
+                rows.push(Row::new(vec![
+                    Cell::from(member.name.to_string()),
+                    privilege,
+                ]));
+            }
+            let table = Table::default()
+                .header(Row::new(vec![Cell::from("Name"), Cell::from("Privilege")]))
+                .rows(rows)
+                .widths([Constraint::Percentage(50), Constraint::Percentage(50)]);
+            f.render_widget(table, table_area);
+        } else {
+            let empty_screen = Line::from("No members in this Group")
+                .centered()
+                .alignment(HorizontalAlignment::Center);
+            f.render_widget(empty_screen, table_area);
+        }
     }
 }

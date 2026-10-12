@@ -165,12 +165,9 @@ impl ConanGroup for MlsGroup {
         // NOTE: Now, don't be a smart ass and edit this line to bypass admin privilege
         // Every Commit is verified by every member
         // And they WILL find out if you pass an illegal action in the group
-        println!("checkpoint 1");
         let mut admins = self.admins()?;
         // Check if there's admin in group and add if none
-        println!("admins: {admins:?}");
         self.am_i_admin()?;
-        println!("checkpoint 2");
         admins.push(peer.address.clone());
         let mut extensions = Extensions::empty();
         extensions.add(Extension::Unknown(
@@ -205,9 +202,7 @@ impl ConanGroup for MlsGroup {
         signer: &SignatureKeyPair,
         key_package: &KeyPackage,
     ) -> Result<(MlsMessageOut, MlsMessageOut), Box<dyn Error>> {
-        println!("Add member called");
         self.am_i_admin()?;
-        println!("checkpoint 3");
         let key_packages = core::slice::from_ref(key_package);
         let (commit, welcome, _) = self.add_members(provider, signer, key_packages)?;
         Ok((commit, welcome))

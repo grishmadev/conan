@@ -144,7 +144,6 @@ impl CommandHandler {
             return Err(ConanGroupError::NotFound.into());
         };
         let mut groups = self.groups.write().unwrap();
-        println!("groups: {groups:?}");
         let (_grp_idx, target_group) = if let Some(target_group) = groups
             .iter_mut()
             .find(|f| f.1.group_id().as_slice() == group_id)
@@ -178,7 +177,9 @@ impl CommandHandler {
         peer.command_sender
             .send(SlaveCmd::Msg(Msg::Welcome(welcome)))?;
 
+        println!("Commiting locally");
         target_group.merge_pending_commit(&self.provider)?;
+        println!("Committed locally");
 
         let members = target_group.get_members()?;
         println!("Members in KeyPackage: {members:?}");
@@ -192,6 +193,7 @@ impl CommandHandler {
                 continue;
             }
             if let Some(peer) = peers.get(&dbpeer.id) {
+                println!("Sending commit");
                 peer.command_sender.send(SlaveCmd::Msg(Msg::GroupAction(
                     target_group.group_id().to_vec(),
                     commit.tls_serialize_detached()?,

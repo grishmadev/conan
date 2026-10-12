@@ -270,8 +270,16 @@ impl ConanGroup for MlsGroup {
             credential: BasicCredential::new(id_bytes).into(),
             signature_key: signer.public().into(),
         };
-
-        KeyPackage::builder().build(cipher, provider, signer, credential_with_key)
+        let capabilities = Capabilities::new(
+            None,
+            None,
+            Some(&[ExtensionType::Unknown(MLS_ADMIN_ID)]),
+            None,
+            None,
+        );
+        KeyPackage::builder()
+            .leaf_node_capabilities(capabilities)
+            .build(cipher, provider, signer, credential_with_key)
     }
 
     fn join_group(

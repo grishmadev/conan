@@ -237,7 +237,9 @@ impl ServerHandler {
     fn delete_group(&self, idx: u16) -> Result<(), Box<dyn Error>> {
         #[allow(clippy::cast_possible_truncation)]
         self.manager.dbconn.delete_group(idx)?;
-        self.manager.groups.write().unwrap().remove(&idx);
+        if let Some(mut group) = self.manager.groups.write().unwrap().remove(&idx) {
+            group.delete(self.manager.provider.storage())?;
+        }
         self.manager.msg_sender.send(IPCRes::DeletedGroup(idx))?;
         Ok(())
     }

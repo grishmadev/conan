@@ -476,9 +476,14 @@ pub async fn single_connect_as_dialer(
     peers: Arc<RwLock<HashMap<u16, Slave>>>,
     addr: String,
 ) -> Result<u16, ConanError> {
-    let Ok(stream) = tor_client.connect(&(addr.clone(), SELF_PORT)).await else {
-        return Err(ConanError::ConnectionError);
+    let stream = match tor_client.connect(&(addr.clone(), SELF_PORT)).await {
+        Ok(stream) => stream,
+        Err(e) => {
+            eprintln!("Error while Connecting. Likely offline.\n{e:?}");
+            return Err(ConanError::ConnectionError);
+        }
     };
+
     let (mut reader, mut writer) = tokio::io::split(stream);
 
     let local_hsid = service.onion_address().ok_or(ConanError::ParseError)?;

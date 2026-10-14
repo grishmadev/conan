@@ -30,6 +30,7 @@ use conandatabase::{
 };
 use openmls::{
     group::{GroupId, MlsGroup},
+    messages::proposals::Proposal,
     prelude::{
         DeserializeBytes, KeyPackage, MlsMessageBodyOut, MlsMessageIn, ProcessedMessageContent,
         Welcome, tls_codec::Serialize,
@@ -177,12 +178,9 @@ impl CommandHandler {
         peer.command_sender
             .send(SlaveCmd::Msg(Msg::Welcome(welcome)))?;
 
-        println!("Commiting locally");
         target_group.merge_pending_commit(&self.provider)?;
-        println!("Committed locally");
 
         let members = target_group.get_members()?;
-        println!("Members in KeyPackage: {members:?}");
 
         for m in &members {
             let dbpeer = self
@@ -193,7 +191,6 @@ impl CommandHandler {
                 continue;
             }
             if let Some(peer) = peers.get(&dbpeer.id) {
-                println!("Sending commit");
                 peer.command_sender.send(SlaveCmd::Msg(Msg::GroupAction(
                     target_group.group_id().to_vec(),
                     commit.tls_serialize_detached()?,
@@ -208,6 +205,7 @@ impl CommandHandler {
         peer_idx: u16,
         welcome: Welcome,
     ) -> Result<(), Box<dyn Error>> {
+        // parsed by the receiver
         println!("Parsing Group Welcome..");
         let mut peers = self.peers.write().unwrap();
         let Some(peer) = peers.get_mut(&peer_idx) else {
@@ -217,13 +215,24 @@ impl CommandHandler {
         let grp_id = mls_grp.group_id().to_vec();
 
         let dbgroup = DBGroup::new(grp_id.clone(), generate_name(3..8));
-
+        let dbgroup = self.dbconn.insert_group(dbgroup)?;
+        for m in mls_grp.get_members()? {
+            println!("checking is admin");
+            let is_admin = if self.dbconn.get_peer_from_addr(&m)?.is_some() {
+                mls_grp.is_admin(&m)?
+            } else {
+                false
+            };
+            println!("inserting member: {m}, is_admin: {is_admin}");
+            self.dbconn.insert_member(dbgroup.id, &m, is_admin)?;
+            println!("member inserted");
+        }
         peer.command_sender
             .send(SlaveCmd::Msg(Msg::GroupVerified(grp_id)))?;
 
-        let db_grp = self.dbconn.insert_group(dbgroup)?;
         self.asst_sndr
-            .send(Internal::IPCCmd(IPCCmd::GroupConnect(db_grp.id)))?;
+            .send(Internal::IPCCmd(IPCCmd::GroupConnect(dbgroup.id)))?;
+        println!("checkpoint 1");
         Ok(())
     }
 
@@ -232,32 +241,26 @@ impl CommandHandler {
         peer_idx: u16,
         group_id: &[u8],
     ) -> Result<(), Box<dyn Error>> {
+        // parsed by the sender
         println!("Group Verified. Proceeding..");
-        {
-            // removing from invitation memory, because the exchange is complete
-            let mut invitation = self.invitation_memory.write().unwrap();
-            invitation.remove(&peer_idx);
-        }
+        // removing from invitation memory, because the exchange is complete
+        self.invitation_memory.write().unwrap().remove(&peer_idx);
         let mlsgrp = MlsGroup::load(&self.openmls_store, &GroupId::from_slice(group_id))?
             .ok_or(ConanError::NotFound)?;
         let db_group = self.dbconn.get_group_by_group_id(group_id)?;
         let mut groups = self.groups.write().unwrap();
         groups.insert(db_group.id, mlsgrp);
-        let Some(grp) = groups.get_mut(&db_group.id) else {
-            return Err(ConanError::NotFound.into());
-        };
-
-        println!("members: {:#?}", grp.get_members()?);
-        // the group is already saved in initializers conandatabase
+        // the group is already saved in initializers database
         // so it can be retrieved
         let db_group = self.dbconn.get_group_by_group_id(group_id)?;
 
-        // Inserting member in our conandatabase
+        // Inserting member in database
         let peer = self
             .dbconn
             .get_peer_from_id(peer_idx)?
             .ok_or("Unknown Peer dropping connection")?;
-        self.dbconn.insert_member(db_group.id, peer, true, false)?;
+        self.dbconn
+            .insert_member(db_group.id, &peer.address, false)?;
 
         ConanNotif::Sys("Group Exchange Complete.".into()).notify()?;
         Ok(())
@@ -305,6 +308,8 @@ impl CommandHandler {
             ProcessedMessageContent::ApplicationMessage(msg) => {
                 let content = msg.into_bytes();
                 let data = String::from_utf8_lossy(&content).to_string();
+                let dbgroup = self.dbconn.get_group_by_group_id(group_id)?;
+                ConanNotif::Text(dbgroup.name.clone(), data.clone()).notify()?;
                 let gc = GroupChat {
                     id: 0,
                     group_id: dbgroup.id,
@@ -313,6 +318,47 @@ impl CommandHandler {
                     time: String::new(),
                 };
                 self.dbconn.insert_group_chat(gc)?;
+            }
+            ProcessedMessageContent::ProposalMessage(proposal) => {
+                println!(
+                    "[DEBUG] Received proposal: {:?}",
+                    proposal.proposal().proposal_type()
+                );
+                // for now we only act on members asking to leave on their own
+                if !matches!(proposal.proposal(), Proposal::SelfRemove) {
+                    return Ok(());
+                }
+                if group.am_i_admin().is_err() {
+                    return Ok(());
+                }
+                // The proposal sender is the member that wants to leave. Resolve it
+                // to a peer and remove it from the group, producing a removal commit.
+                let sender_peer = self
+                    .dbconn
+                    .get_peer_from_addr(&sender_addr)?
+                    .ok_or(ConanGroupError::NotFound)?;
+                let commit = group.remove_member(&sender_peer, &self.provider, &self.signer)?;
+
+                let members = group.get_members()?;
+                let peers = self.peers.read().unwrap();
+                for m in &members {
+                    let dbpeer = self
+                        .dbconn
+                        .get_peer_from_addr(m)?
+                        .ok_or(ConanGroupError::NotFound)?;
+                    // skip self; the leaving member is already gone from `members`
+                    if dbpeer.id == 1 {
+                        continue;
+                    }
+                    if let Some(peer) = peers.get(&dbpeer.id) {
+                        peer.command_sender.send(SlaveCmd::Msg(Msg::GroupAction(
+                            group.group_id().to_vec(),
+                            commit.tls_serialize_detached()?,
+                        )))?;
+                    }
+                }
+                // keep the local database in sync with the MLS group state
+                self.dbconn.remove_member(sender_peer.id, dbgroup.id)?;
             }
             ProcessedMessageContent::StagedCommitMessage(commit) => {
                 if !group.is_admin(&sender_addr)? {
@@ -374,4 +420,5 @@ impl CommandHandler {
         }
         Ok(())
     }
+}
 }

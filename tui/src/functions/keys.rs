@@ -2,11 +2,7 @@ use std::time::{Duration, Instant};
 
 use conandatabase::entities::tuichat::TuiChat;
 use conanprotocol::comm::enums::ipccmd::IPCCmd;
-use crossterm::event::{
-    self,
-    Event::{self, Key},
-    KeyCode, KeyEvent, KeyModifiers,
-};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 
 use crate::{
     App,
@@ -46,7 +42,7 @@ pub trait Keys {
     /// Handles Keys for [`Screen::GroupDescription`]
     ///
     /// # Errors
-    fn handle_grpdsc_screen(&mut self, key: KeyEvent) -> impl Future<Output = std::io::Result<()>>;
+    fn handle_grpdsc_screen(&mut self, key: KeyEvent) -> std::io::Result<()>;
     /// Toggles tab when called
     fn toggle_tab(&mut self);
     /// Triggers next idx when called
@@ -85,7 +81,7 @@ impl Keys for App {
                     self.handle_command_palette(key).await?;
                 }
                 Screen::GroupDescription(..) => {
-                    self.handle_grpdsc_screen(key).await?;
+                    self.handle_grpdsc_screen(key)?;
                 }
             }
         }
@@ -587,8 +583,8 @@ impl Keys for App {
         Ok(())
     }
 
-    async fn handle_grpdsc_screen(&mut self, key: KeyEvent) -> std::io::Result<()> {
-        let Screen::GroupDescription(idx) = self.active_screen else {
+    fn handle_grpdsc_screen(&mut self, key: KeyEvent) -> std::io::Result<()> {
+        let Screen::GroupDescription(_) = self.active_screen else {
             return Ok(());
         };
         match key.code {

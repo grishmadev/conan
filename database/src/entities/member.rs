@@ -13,30 +13,29 @@ pub struct GroupToPeer {
 }
 
 pub trait GroupMember {
-    /// Lists group members along with if they're admin
+    /// Lists members of a group with their admin status
     /// # Errors
     fn list_members(&self, id: u16) -> Result<Vec<(Peer, bool)>, rusqlite::Error>;
-    /// Insert a member in a group
+    /// Inserts or replaces a member in a group, registering unknown peers first
     /// # Errors
     fn insert_member(
         &self,
         group_idx: u16,
         member: Peer,
-        known: bool,
         is_admin: bool,
     ) -> Result<Peer, rusqlite::Error>;
-    /// List the groups that a member is part of
+    /// Lists all groups a specific peer is a member of
     /// # Errors
     fn list_groups_with_member(&self, peer_id: u16) -> Result<Vec<DBGroup>, rusqlite::Error>;
-    /// Remove a member from a group in database
+    /// Removes a member from a group in local database
     /// # Errors
     fn remove_member(&self, peer_id: u16, group_id: u16) -> Result<(), rusqlite::Error>;
-    /// Promote a member to admin
+    /// Promotes a member to admin status in a group
     /// # Errors
-    fn promote_member(&self, peer_id: u16) -> Result<(), rusqlite::Error>;
-    /// Demote an admin to member
+    fn promote_member(&self, peer_id: u16, group_id: u16) -> Result<(), rusqlite::Error>;
+    /// Demotes an admin to normal member status in a group
     /// # Errors
-    fn demote_member(&self, peer_id: u16) -> Result<(), rusqlite::Error>;
+    fn demote_member(&self, peer_id: u16, group_id: u16) -> Result<(), rusqlite::Error>;
 }
 
 impl GroupMember for Connection {
@@ -85,18 +84,22 @@ impl GroupMember for Connection {
     fn insert_member(
         &self,
         group_idx: u16,
-        mut member: Peer,
-        known: bool,
+        member: Peer,
         is_admin: bool,
     ) -> Result<Peer, rusqlite::Error> {
-        if !known {
-            member = self.insert_peer(member)?;
-        }
-        let mut stmt = self.prepare(
-            "INSERT INTO group_to_peer (group_id, peer_id, is_admin) VALUES (?1, ?2, ?3)",
+        // check whether the provided peer is already in the database
+        let member = match self.get_peer_from_addr(&member.address)? {
+            // already known: reuse the stored row so its id is used
+            Some(peer) => peer,
+            // unknown: add it as a peer first
+            None => self.insert_peer(member)?,
+        };
+        // `INSERT OR REPLACE` keeps a single membership row per (group, peer)
+        let res: usize = self.execute(
+            "INSERT OR REPLACE INTO group_to_peer (group_id, peer_id, is_admin) VALUES (?1, ?2, ?3)",
+            params![group_idx, member.id, is_admin],
         )?;
-        let res = stmt.execute(params![group_idx, member.id, is_admin])?;
-        if res == 1 {
+        if res >= 1 {
             Ok(member)
         } else {
             Err(rusqlite::Error::QueryReturnedNoRows)
@@ -110,17 +113,23 @@ impl GroupMember for Connection {
         Ok(())
     }
 
-    fn demote_member(&self, peer_id: u16) -> Result<(), rusqlite::Error> {
-        let mut stmt =
-            self.prepare("UPDATE group_to_peer SET is_admin = FALSE WHERE peer_id = ?1")?;
-        stmt.execute(params![peer_id])?;
+    fn demote_member(&self, peer_id: u16, group_id: u16) -> Result<(), rusqlite::Error> {
+        let mut stmt = self.prepare(
+            "UPDATE group_to_peer SET is_admin = FALSE WHERE peer_id = ?1 AND group_id = ?2",
+        )?;
+        if stmt.execute(params![peer_id, group_id])? == 0 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
         Ok(())
     }
 
-    fn promote_member(&self, peer_id: u16) -> Result<(), rusqlite::Error> {
-        let mut stmt =
-            self.prepare("UPDATE group_to_peer SET is_admin = TRUE WHERE peer_id = ?1")?;
-        stmt.execute(params![peer_id])?;
+    fn promote_member(&self, peer_id: u16, group_id: u16) -> Result<(), rusqlite::Error> {
+        let mut stmt = self.prepare(
+            "UPDATE group_to_peer SET is_admin = TRUE WHERE peer_id = ?1 AND group_id = ?2",
+        )?;
+        if stmt.execute(params![peer_id, group_id])? == 0 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
         Ok(())
     }
 }

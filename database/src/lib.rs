@@ -9,12 +9,12 @@ use rusqlite::Connection;
 use std::fs;
 
 pub trait ConnectionClone {
-    /// Clones the Connection via Reference and returns it
+    /// Clones the database connection
     /// # Errors
     fn try_clone(&self) -> Result<Connection, Box<dyn std::error::Error>>;
-    /// Get `OpenMls` path relevant to current database connection
+    /// Gets `OpenMls` storage path for current database
     fn get_openmls_path(&self) -> String;
-    /// Create an openmls connection from an existing connection
+    /// Creates an openmls connection from an existing connection
     #[must_use]
     fn openmls(&self) -> Self;
 }
@@ -23,6 +23,8 @@ impl ConnectionClone for Connection {
     fn try_clone(&self) -> Result<Self, Box<dyn std::error::Error>> {
         let path = self.path().ok_or("Cannot get Database path")?;
         let conn = Connection::open(path)?;
+        // Enforce foreign keys on the new connection, cascades depend on it
+        conn.execute("PRAGMA foreign_keys = ON;", ())?;
         Ok(conn)
     }
 
@@ -39,12 +41,15 @@ impl ConnectionClone for Connection {
 
     fn openmls(&self) -> Self {
         let path = self.get_openmls_path();
-        Connection::open(path).unwrap()
+        let conn = Connection::open(path).unwrap();
+        // Enforce foreign keys on the new connection, cascades depend on it
+        conn.execute("PRAGMA foreign_keys = ON;", ()).unwrap();
+        conn
     }
 }
 
 pub trait FromConnection<C: Codec> {
-    /// Get Storage Provider from a Connection
+    /// Gets storage provider from a connection
     /// # Errors
     fn from_db(
         conn: &Connection,
@@ -69,6 +74,7 @@ where
     }
 }
 
+/// Sets up the initial database schema and migrations
 /// # Errors
 pub fn setup_db(db_path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let conn = Connection::open(db_path)?;
@@ -134,6 +140,23 @@ pub fn setup_db(db_path: &str) -> Result<(), Box<dyn std::error::Error>> {
             group_id INTEGER NOT NULL REFERENCES my_group(id) ON DELETE CASCADE,
             is_admin BOOLEAN DEFAULT FALSE
         );",
+        (),
+    )?;
+
+    // drop duplicate memberships (keep the oldest row) so the unique index can be created
+    conn.execute(
+        "
+        DELETE FROM group_to_peer
+        WHERE id NOT IN (
+            SELECT MIN(id) FROM group_to_peer GROUP BY group_id, peer_id
+        );",
+        (),
+    )?;
+    // one membership row per (group, peer); makes `INSERT OR REPLACE` deduplicate
+    conn.execute(
+        "
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_group_to_peer_unique
+        ON group_to_peer (group_id, peer_id);",
         (),
     )?;
 

@@ -13,31 +13,31 @@ pub struct GroupChat {
 }
 
 pub trait ConnectionGroupChat {
-    /// Lists all the chats in all the group chats
+    /// Lists all group chats from local database
     /// # Errors
     fn list_all_group_chat(&self) -> Result<Vec<GroupChat>, rusqlite::Error>;
-    /// Use this function to get chats for groups by database group indexes
+    /// Retrieves last n chats for a group by its local database id
     /// # Errors
     fn get_chats_by_group_idx(
         &self,
         idx: u16,
         limit: u8,
     ) -> Result<Vec<GroupChat>, rusqlite::Error>;
-    /// Use this function to get chats for groups by openmls group ids
+    /// Retrieves last n chats for a group by its MLS group id
     /// # Errors
     fn get_chats_by_group_id(
         &self,
         id: Vec<u8>,
         limit: u8,
     ) -> Result<Vec<GroupChat>, rusqlite::Error>;
-    /// Use this function to get group chats in `TuiChat` format
+    /// Retrieves last n chats for a group in `TuiChat` format by its local database id
     /// # Errors
     fn get_tuichats_by_group_idx(
         &self,
         idx: u16,
         limit: u8,
     ) -> Result<Vec<TuiChat>, rusqlite::Error>;
-    /// Inserts group chat into database
+    /// Inserts a new group chat into local database
     /// # Errors
     fn insert_group_chat(&self, chat: GroupChat) -> Result<GroupChat, rusqlite::Error>;
 }
@@ -124,7 +124,6 @@ impl ConnectionGroupChat for Connection {
     }
 
     fn insert_group_chat(&self, chat: GroupChat) -> Result<GroupChat, rusqlite::Error> {
-        println!("inserting chat");
         let mut stmt =
             self.prepare("INSERT INTO group_chat (group_id, sender_id, data) VALUES (?1, ?2, ?3) RETURNING id, group_id, sender_id, data, time")?;
         let row = stmt.query_one(params![&chat.group_id, chat.sender_id, &chat.data], |r| {

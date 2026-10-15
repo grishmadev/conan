@@ -27,23 +27,22 @@ impl DBGroup {
 }
 
 pub trait ConnectionGroup {
-    /// List all groups
+    /// Lists all groups from local database
     /// # Errors
     fn list_groups(&self) -> Result<Vec<DBGroup>, rusqlite::Error>;
-    /// Insert a group
-    /// `Note`: Also inserts self to group-member relation
+    /// Inserts a new group and adds self as a member
     /// # Errors
     fn insert_group(&self, group: DBGroup) -> Result<DBGroup, rusqlite::Error>;
-    /// Delete a group
+    /// Deletes a group by id
     /// # Errors
     fn delete_group(&self, group_id: u16) -> Result<(), rusqlite::Error>;
-    /// Rename a group
+    /// Renames a group by id
     /// # Errors
     fn rename_group(&self, group_id: u16, name: &str) -> Result<DBGroup, rusqlite::Error>;
-    /// Get group from its `group_id`
+    /// Retrieves a group by its MLS group id
     /// # Errors
     fn get_group_by_group_id(&self, group_id: &[u8]) -> Result<DBGroup, rusqlite::Error>;
-    /// Get a from its index
+    /// Retrieves a group by its local database id
     /// # Errors
     fn get_group_by_idx(&self, idx: u16) -> Result<DBGroup, rusqlite::Error>;
 }
@@ -82,7 +81,7 @@ impl ConnectionGroup for Connection {
                 let me = self
                     .get_peer_from_id(1)?
                     .ok_or(rusqlite::Error::QueryReturnedNoRows)?;
-                self.insert_member(row.id, me, true, true)?;
+                self.insert_member(row.id, me, true)?;
                 Some(row)
             }
             Err(e) => return Err(e),

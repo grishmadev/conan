@@ -14,7 +14,7 @@ pub struct Chat {
 }
 
 impl Chat {
-    /// Used to build Chat Struct with given parameters
+    /// Builds a Chat struct with current timestamp
     #[must_use]
     pub fn build(text: &str, sender: u16, receiver: u16) -> Self {
         let time = Utc::now().to_string();
@@ -56,23 +56,23 @@ impl Chat {
 }
 
 pub trait ChatData {
-    /// Lists Chats from Local Database
+    /// Lists all chats from local database
     /// # Errors
     fn list_all_chat(&self) -> Result<Vec<Chat>, rusqlite::Error>;
-    /// Lists chat from a specific peer
+    /// Retrieves last n chats for a specific peer
     /// # Errors
     fn list_chat_from(&self, peer_id: u16, chat_amount: u8) -> Result<Vec<Chat>, rusqlite::Error>;
-    /// List chat from user in `TuiChat` format
+    /// Retrieves last n chats for a specific peer in `TuiChat` format
     /// # Errors
     fn list_tuichat_from(
         &self,
         peer_id: u16,
         chat_amount: u8,
     ) -> Result<Vec<TuiChat>, rusqlite::Error>;
-    /// Inserts Chat to Local Database
+    /// Inserts a chat into local database
     /// # Errors
     fn insert_chat(&self, chat: Chat) -> Result<(), rusqlite::Error>;
-    /// Deletes from Local Database based on chat id
+    /// Deletes a chat from local database by chat id
     /// # Errors
     fn delete_chat(&self, idx: u16) -> Result<(), rusqlite::Error>;
 }

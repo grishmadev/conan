@@ -11,7 +11,7 @@ pub struct TuiChat {
 }
 
 impl TuiChat {
-    /// Used to create `TuiChat` struct
+    /// Builds a `TuiChat` struct with current timestamp
     #[must_use]
     pub fn build(text: &str, name: &str) -> Self {
         let time = Utc::now().to_string();

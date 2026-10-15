@@ -31,28 +31,25 @@ impl GroupDescription for App {
         f.render_widget(Clear, box_area);
         f.render_widget(block, box_area);
         let mut rows = Vec::new();
-        if !members.is_empty() {
+        if members.is_empty() {
+            let empty_screen = Line::from("No members in this Group")
+                .centered()
+                .alignment(HorizontalAlignment::Center);
+            f.render_widget(empty_screen, table_area);
+        } else {
             for (member, is_admin) in members {
                 let privilege = if *is_admin {
                     Cell::from("Admin").green().bold()
                 } else {
                     Cell::from("Member").cyan()
                 };
-                rows.push(Row::new(vec![
-                    Cell::from(member.name.to_string()),
-                    privilege,
-                ]));
+                rows.push(Row::new(vec![Cell::from(member.name.clone()), privilege]));
             }
             let table = Table::default()
                 .header(Row::new(vec![Cell::from("Name"), Cell::from("Privilege")]))
                 .rows(rows)
                 .widths([Constraint::Percentage(50), Constraint::Percentage(50)]);
             f.render_widget(table, table_area);
-        } else {
-            let empty_screen = Line::from("No members in this Group")
-                .centered()
-                .alignment(HorizontalAlignment::Center);
-            f.render_widget(empty_screen, table_area);
         }
     }
 }

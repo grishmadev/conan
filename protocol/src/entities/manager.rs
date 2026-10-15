@@ -556,27 +556,15 @@ impl Manager {
     }
 
     /// Promote a member to admin in a group
-    /// params:
-    /// grp - Pointer to target `MlsGroup`,
-    /// peer idx - Index of peer
-    /// first - is the first commit?
-    /// since the first ever commit is about promoting self to admin
     /// # Errors
-    pub fn promote_member(
-        &self,
-        grp: &mut MlsGroup,
-        peer_idx: u16,
-        first: bool,
-    ) -> Result<(), Box<dyn Error>> {
+    pub fn promote_member(&self, grp: &mut MlsGroup, peer_idx: u16) -> Result<(), Box<dyn Error>> {
         let peer = self
             .dbconn
             .get_peer_from_id(peer_idx)?
             .ok_or(ConanError::NotFound)?;
         let (signer, _, _) = MlsGroup::signer_from_expanded_key(&self.identity_key);
         let commit = grp.promote_to_admin(&peer, &self.provider, &signer)?;
-        if !first {
-            self.send_commit(grp, &commit)?;
-        }
+        self.send_commit(grp, &commit)?;
         Ok(())
     }
 

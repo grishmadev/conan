@@ -24,7 +24,7 @@ use conandatabase::{
         group::{ConnectionGroup, DBGroup},
         group_chat::{ConnectionGroupChat, GroupChat},
         member::GroupMember,
-        peer::PeerData,
+        peer::{Peer, PeerData},
     },
     rusqlite::Connection,
 };
@@ -224,7 +224,8 @@ impl CommandHandler {
                 false
             };
             println!("inserting member: {m}, is_admin: {is_admin}");
-            self.dbconn.insert_member(dbgroup.id, &m, is_admin)?;
+            let peer = Peer::build(&generate_name(3..10), &m, false);
+            self.dbconn.insert_member(dbgroup.id, peer, is_admin)?;
             println!("member inserted");
         }
         peer.command_sender
@@ -259,8 +260,7 @@ impl CommandHandler {
             .dbconn
             .get_peer_from_id(peer_idx)?
             .ok_or("Unknown Peer dropping connection")?;
-        self.dbconn
-            .insert_member(db_group.id, &peer.address, false)?;
+        self.dbconn.insert_member(db_group.id, peer, false)?;
 
         ConanNotif::Sys("Group Exchange Complete.".into()).notify()?;
         Ok(())
@@ -420,5 +420,4 @@ impl CommandHandler {
         }
         Ok(())
     }
-}
 }

@@ -50,17 +50,20 @@ fn create_default_config(config_path: &str) -> Result<(), Box<dyn Error>> {
         .to_string_lossy()
         .to_string();
     let config_content = DEFAULT_CONFIG_CONTENT.replace("{home}", &home_dir);
-    println!("conf content: {config_content}");
+    println!("conf content:\n{config_content}");
     let path = Path::new(config_path);
     if let Some(parent) = path.parent() {
+        println!("checkpoint 1");
         if !fs::exists(parent)? {
             println!(
                 "Config Directory doesn't exist. Creating {}.",
                 parent.display()
             );
         }
+        println!("checkpoint 2");
         fs::create_dir_all(parent)?;
     }
+    println!("checkpoint 3");
     fs::write(config_path, config_content)?;
     Ok(())
 }
@@ -70,118 +73,86 @@ fn create_default_config(config_path: &str) -> Result<(), Box<dyn Error>> {
 /// # Errors
 pub fn parse_config() -> Result<ConanConfig, Box<dyn std::error::Error>> {
     let args = ConanArgs::parse();
-    let home_path = env::var("HOME")?;
-    let mut default_config_path = home_path.clone();
-    default_config_path.push_str(CONFIG_PATH);
-    let config_path = if let Some(s) = args.config {
-        s
-    } else {
-        default_config_path
-    };
-    let mut config: Option<Config> = None;
-    for i in 0..3 {
-        let file = match Config::builder()
-            .add_source(config::File::new(&config_path, FileFormat::Toml))
-            .build()
-        {
-            Ok(s) => Some(s),
-            Err(e) => {
-                eprintln!("Config Error, Using default.\n{e:?}");
-                // creating default config
-                create_default_config(&config_path)?;
-                // creating space for other needed files (socket, database, keys)
-                let mut conan_dir = home_path.clone();
-                conan_dir.push_str("/.conan");
-                _ = fs::create_dir_all(&conan_dir);
-                None
-            }
-        };
-        if file.is_some() {
-            config = file;
-            break;
-        }
-        if i <= 2 {
-            println!("Retrying: [{i}/3]");
-        }
-    }
-    if config.is_none() {
+    let home = env::var("HOME")?;
+    let config_path = args
+        .config
+        .unwrap_or_else(|| format!("{home}{CONFIG_PATH}"));
+    // load config, generating a default one and retrying on failure
+    let Ok(config) = load_config(&config_path, &home) else {
         eprintln!("Could not initialize Config. Sorry!");
         process::exit(1);
-    }
-    let socket_path = if let Some(s) = args.socket {
-        s
-    } else if let Some(ref s) = config
-        && let Ok(path) = s.get_string("socket-path")
-    {
-        path
-    } else {
-        let mut key_path = home_path.clone();
-        key_path.push_str(DAEMON_SOCKET);
-        key_path
-    };
-    let arti_key_store = if let Some(s) = args.key {
-        s
-    } else if let Some(ref s) = config
-        && let Ok(path) = s.get_string("key-path")
-    {
-        path
-    } else {
-        let mut key_path = home_path.clone();
-        key_path.push_str(ARTI_KEYSTORE);
-        key_path
-    };
-    let cache_path = if let Some(c) = args.cache {
-        c
-    } else if let Some(ref c) = config
-        && let Ok(path) = c.get_string("cache-path")
-    {
-        path
-    } else {
-        let mut key_path = home_path.clone();
-        key_path.push_str(CACHE_PATH);
-        key_path
     };
 
-    let db_path = if let Some(c) = args.db_path {
-        c
-    } else if let Some(ref db) = config
-        && let Ok(path) = db.get_string("database-path")
-    {
-        path
-    } else {
-        let mut db_path = home_path.clone();
-        db_path.push_str(DATABASE_PATH);
-        db_path
-    };
+    // precedence: CLI argument > config file value > home relative default
+    let socket_path = resolve_path(args.socket, &config, "socket-path", DAEMON_SOCKET, &home);
+    let arti_key_store = resolve_path(args.key, &config, "key-path", ARTI_KEYSTORE, &home);
+    let cache_path = resolve_path(args.cache, &config, "cache-path", CACHE_PATH, &home);
+    let db_path = resolve_path(args.db_path, &config, "database-path", DATABASE_PATH, &home);
+
     _ = fs::create_dir_all(&cache_path);
-    if let Err(e) = fs::create_dir_all(&arti_key_store) {
-        eprintln!("Warning: could not create keystore dir: {e}");
-    } else {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(&arti_key_store, fs::Permissions::from_mode(0o700));
+    match fs::create_dir_all(&arti_key_store) {
+        Ok(()) => {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(&arti_key_store, fs::Permissions::from_mode(0o700));
+            }
         }
+        Err(e) => eprintln!("Warning: could not create keystore dir: {e}"),
     }
-    if let Some(parent) = std::path::Path::new(&db_path).parent() {
-        _ = fs::create_dir_all(parent);
-    }
-    if let Some(parent) = std::path::Path::new(&socket_path).parent() {
-        _ = fs::create_dir_all(parent);
+    // creating space for other needed files (database, socket)
+    for path in [&db_path, &socket_path] {
+        if let Some(parent) = Path::new(path).parent() {
+            _ = fs::create_dir_all(parent);
+        }
     }
     if let Err(e) = setup_db(&db_path) {
         eprintln!("Could not setup Database.\n{e}");
         process::exit(1);
     }
 
-    let res = ConanConfig {
+    Ok(ConanConfig {
         socket_path,
         arti_key_store,
         cache_path,
         db_path,
-    };
+    })
+}
 
-    Ok(res)
+/// Loads the TOML config file, creating a default one and retrying up to 3 times.
+///
+/// # Errors
+/// Returns the error from [`create_default_config`] if writing the default fails.
+fn load_config(config_path: &str, home: &str) -> Result<Config, Box<dyn Error>> {
+    for i in 0..3 {
+        match Config::builder()
+            .add_source(config::File::new(config_path, FileFormat::Toml))
+            .build()
+        {
+            Ok(config) => return Ok(config),
+            Err(e) => {
+                eprintln!("Config Error, Using default.\n{e:?}");
+                // creating default config
+                create_default_config(config_path)?;
+                // creating space for other needed files (socket, database, keys)
+                _ = fs::create_dir_all(format!("{home}/.conan"));
+                println!("Retrying: [{i}/3]");
+            }
+        }
+    }
+    Err("Could not initialize Config. Sorry!".into())
+}
+
+/// Resolves a path with precedence: CLI argument > config value > `{home}{default}` fallback.
+fn resolve_path(
+    arg: Option<String>,
+    config: &Config,
+    key: &str,
+    default: &str,
+    home: &str,
+) -> String {
+    arg.or_else(|| config.get_string(key).ok())
+        .unwrap_or_else(|| format!("{home}{default}"))
 }
 
 #[cfg(test)]
@@ -192,11 +163,15 @@ mod tests {
 
     #[test]
     fn test_config_creation() {
-        let config_path = "./";
-        create_default_config(config_path).unwrap();
+        let config_path = "config_test";
         let file_path = format!("{config_path}{CONFIG_PATH}");
+        // if !fs::exists(&file_path).unwrap() {
+        //     fs::create_dir_all(&file_path).unwrap();
+        // }
+        create_default_config(&file_path).unwrap();
         let exists = fs::exists(&file_path).unwrap();
         assert!(exists);
         fs::remove_file(&file_path).unwrap();
+        fs::remove_dir_all(config_path).unwrap();
     }
 }

@@ -361,7 +361,7 @@ impl ServerHandler {
     fn promote(&self, group_idx: u16, peer_idx: u16) -> Result<(), Box<dyn Error>> {
         if let Ok(mut groups) = self.manager.groups.write() {
             let group = groups.get_mut(&group_idx).ok_or(ConanError::NotFound)?;
-            self.manager.promote_member(group, peer_idx, false)?;
+            self.manager.promote_member(group, peer_idx)?;
             return Ok(());
         }
         Err(ConanError::Locked.into())

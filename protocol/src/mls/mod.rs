@@ -166,7 +166,6 @@ impl ConanGroup for MlsGroup {
         // Every Commit is verified by every member
         // And they WILL find out if you pass an illegal action in the group
         let mut admins = self.admins()?;
-        // Check if there's admin in group and add if none
         self.am_i_admin()?;
         admins.push(peer.address.clone());
         let mut extensions = Extensions::empty();

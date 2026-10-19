@@ -1,5 +1,6 @@
 pub mod codec;
 pub mod crypto;
+pub mod logs;
 use std::ops::Range;
 
 use rand::{random, random_range};

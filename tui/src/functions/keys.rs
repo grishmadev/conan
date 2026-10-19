@@ -407,7 +407,7 @@ impl Keys for App {
                 }
                 InputMode::RenameGroup => {
                     let Some(idx) = self.contact_idx.selected() else {
-                        self.notification = Some(("nothing selected".to_string(), Instant::now()));
+                        self.notification = Some(("Nothing selected".to_string(), Instant::now()));
                         return Ok(());
                     };
                     let new_idx = idx - self.contacts.len() - 1;

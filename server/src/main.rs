@@ -1,4 +1,5 @@
 use conan_chat_server::ServerHandler;
+use conan_extras::logs::Log;
 use conanprotocol::{
     comm::enums::{ipccmd::IPCCmd, ipcres::IPCRes},
     config::parse_config,
@@ -13,11 +14,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let config = parse_config()?;
     let (worker_sender, worker_receiver) = std::sync::mpsc::channel::<IPCCmd>();
     let (mut master, msg_sender) = Master::build(None, worker_sender.clone());
-    println!("Starting Master..");
+    Log::info("Starting Master..");
     master.setup_communication(&config)?;
-    println!("Started Master.\n\rStarting Manager..");
+    Log::info("Started Master.\n\rStarting Manager..");
     let manager = Manager::create(msg_sender.clone(), config.clone(), worker_sender).await?;
-    println!("Started Manager.");
+    Log::info("Started Manager.");
     let signing_key = signing_key().await?;
     let mut handler = ServerHandler::setup(manager, signing_key)?;
     loop {

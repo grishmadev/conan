@@ -46,7 +46,7 @@ impl PaletteCommand {
                 PaletteCommand::AddToGroup(name.to_string())
             }
             _ => {
-                return Err("No such Enum".into());
+                return Err("No such Command".into());
             }
         };
         Ok(val)

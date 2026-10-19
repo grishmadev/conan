@@ -1,6 +1,7 @@
 use std::{env, error::Error, fs, path::Path, process};
 
 use clap::Parser;
+use conan_extras::logs::Log;
 use config::{Config, FileFormat};
 
 use crate::constants::{ARTI_KEYSTORE, CACHE_PATH, CONFIG_PATH, DAEMON_SOCKET, DATABASE_PATH};
@@ -53,17 +54,14 @@ fn create_default_config(config_path: &str) -> Result<(), Box<dyn Error>> {
     println!("conf content:\n{config_content}");
     let path = Path::new(config_path);
     if let Some(parent) = path.parent() {
-        println!("checkpoint 1");
         if !fs::exists(parent)? {
-            println!(
+            Log::debug(&format!(
                 "Config Directory doesn't exist. Creating {}.",
                 parent.display()
-            );
+            ));
         }
-        println!("checkpoint 2");
         fs::create_dir_all(parent)?;
     }
-    println!("checkpoint 3");
     fs::write(config_path, config_content)?;
     Ok(())
 }
@@ -79,7 +77,7 @@ pub fn parse_config() -> Result<ConanConfig, Box<dyn std::error::Error>> {
         .unwrap_or_else(|| format!("{home}{CONFIG_PATH}"));
     // load config, generating a default one and retrying on failure
     let Ok(config) = load_config(&config_path, &home) else {
-        eprintln!("Could not initialize Config. Sorry!");
+        Log::err("Could not initialize Config. Sorry!");
         process::exit(1);
     };
 
@@ -98,7 +96,7 @@ pub fn parse_config() -> Result<ConanConfig, Box<dyn std::error::Error>> {
                 let _ = fs::set_permissions(&arti_key_store, fs::Permissions::from_mode(0o700));
             }
         }
-        Err(e) => eprintln!("Warning: could not create keystore dir: {e}"),
+        Err(e) => Log::err(&format!("Warning: could not create keystore dir: {e}")),
     }
     // creating space for other needed files (database, socket)
     for path in [&db_path, &socket_path] {
@@ -107,7 +105,7 @@ pub fn parse_config() -> Result<ConanConfig, Box<dyn std::error::Error>> {
         }
     }
     if let Err(e) = setup_db(&db_path) {
-        eprintln!("Could not setup Database.\n{e}");
+        Log::err(&format!("Could not setup Database.\n{e}"));
         process::exit(1);
     }
 
@@ -131,7 +129,7 @@ fn load_config(config_path: &str, home: &str) -> Result<Config, Box<dyn Error>> 
         {
             Ok(config) => return Ok(config),
             Err(e) => {
-                eprintln!("Config Error, Using default.\n{e:?}");
+                Log::err(&format!("Config Error, Using default.\n{e:?}"));
                 // creating default config
                 create_default_config(config_path)?;
                 // creating space for other needed files (socket, database, keys)

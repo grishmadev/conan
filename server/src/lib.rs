@@ -1,4 +1,4 @@
-use conan_extras::generate_name;
+use conan_extras::{generate_name, logs::Log};
 use conandatabase::entities::{
     chat::{Chat, ChatData},
     group::{ConnectionGroup, DBGroup},
@@ -36,11 +36,11 @@ impl ServerHandler {
         mut manager: Manager,
         signing_key: ExpandedKeypair,
     ) -> Result<Self, Box<dyn Error>> {
-        println!("Starting Manager..");
+        Log::info("Starting Manager..");
         manager.init_server()?;
-        println!("Manager Started. Establishing Message Routes..");
+        Log::info("Manager Started. Establishing Message Routes..");
         manager.setup_slave_communication()?;
-        println!("All Set.");
+        Log::info("All Set.");
         Ok(Self {
             manager,
             signing_key,
@@ -187,7 +187,7 @@ impl ServerHandler {
         let peers = Arc::clone(&manager.peers);
         if let Ok(mut peers) = peers.write() {
             let Some(target) = peers.get_mut(&idx) else {
-                println!("Cannot find target peer.");
+                Log::err("Cannot find target peer.");
                 return Ok(());
             };
             let chat = Chat::chat_to_send(&text, idx);
@@ -204,7 +204,7 @@ impl ServerHandler {
         }
         if let Ok(mut peers) = self.manager.peers.write() {
             let Some(target) = peers.get_mut(&idx) else {
-                eprintln!("Cannot find target peer to disconnect.");
+                Log::err("Cannot find target peer to disconnect.");
                 return Ok(());
             };
             target.command_sender.send(SlaveCmd::Shutdown)?;

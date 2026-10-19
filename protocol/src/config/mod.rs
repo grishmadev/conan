@@ -134,7 +134,7 @@ fn load_config(config_path: &str, home: &str) -> Result<Config, Box<dyn Error>> 
                 create_default_config(config_path)?;
                 // creating space for other needed files (socket, database, keys)
                 _ = fs::create_dir_all(format!("{home}/.conan"));
-                println!("Retrying: [{i}/3]");
+                Log::debug(&format!("Retrying: [{i}/3]"));
             }
         }
     }

@@ -9,7 +9,7 @@ use crate::{
 };
 use crate::{config::parse_config, operations::send};
 use arti_client::DataStream;
-use conan_extras::generate_name;
+use conan_extras::{generate_name, logs::Log};
 use conancrypto::ratchet::RatchetSession;
 use conandatabase::{
     entities::peer::{Peer, PeerData},
@@ -86,12 +86,12 @@ impl Slave {
                         continue;
                     }
                     Err(e) => {
-                        eprintln!("Error writing to socket.\n{e}");
+                        Log::err(&format!("Error writing to socket.\n{e}"));
                         threshold -= 1;
                     }
                 }
                 if threshold != 0 {
-                    eprintln!("Retrying read...");
+                    Log::info("Retrying read...");
                 } else {
                     response_sender
                         .send((id, Internal::RemovePeer(id)))
@@ -118,7 +118,7 @@ impl Slave {
                     if let Some(cmd) = cmd
                         && let Err(e) = send(&mut writer, cmd, &ratchet).await
                     {
-                        println!("{:?}", ConanError::Other(e.to_string()));
+                        Log::err(&format!("{:?}", ConanError::Other(e.to_string())));
                     }
                 }
             }

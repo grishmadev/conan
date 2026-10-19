@@ -8,13 +8,3 @@ pub mod operations;
 pub mod requests;
 #[cfg(test)]
 pub mod tests;
-
-#[macro_export]
-macro_rules! debug {
-    ($($arg:tt)*) => {
-        #[cfg(debug_assertions)]
-        {
-            println!("[DEBUG] {}", format_args!($($arg)*));
-        }
-    };
-}

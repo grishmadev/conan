@@ -1,4 +1,5 @@
 use bincode::config as cfg;
+use conan_extras::logs::Log;
 use std::{fs, path::Path, sync::mpsc};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -52,22 +53,22 @@ impl Master {
             && !parent_dir.as_os_str().is_empty()
             && !parent_dir.exists()
         {
-            println!("Socket Doesn't exist. Creating one.");
+            Log::info("Socket Doesn't exist. Creating one.");
             if let Err(e) = fs::create_dir_all(parent_dir) {
-                eprintln!("Error creating directory: {e:?}");
+                Log::err(&format!("Error creating directory: {e:?}"));
             }
         }
 
         if sock_path.exists()
             && let Err(e) = fs::remove_file(sock_path)
         {
-            eprintln!("Error removing file: {e:?}");
+            Log::err(&format!("Error removing file: {e:?}"));
         }
 
         let listener = match UnixListener::bind(sock_path) {
             Ok(s) => s,
             Err(e) => {
-                println!("Binding Error: {e}");
+                Log::err(&format!("Binding Error: {e}"));
                 return Ok(());
             }
         };
@@ -86,7 +87,7 @@ impl Master {
                     loop {
                         match sock_reader.read(&mut buf).await {
                             Ok(0) => {
-                                println!("TUI disconnected. Exiting.");
+                                Log::info("TUI disconnected. Bye Bye.");
                                 std::process::exit(0);
                             }
                             Ok(n) => {
@@ -96,16 +97,18 @@ impl Master {
                                 ) {
                                     Ok((cmd, _)) => cmd,
                                     Err(e) => {
-                                        eprintln!("Error while decoding message: {e}");
+                                        Log::err(&format!("Error while decoding message: {e}"));
                                         continue;
                                     }
                                 };
                                 if let Err(e) = worker_sen.send(cmd) {
-                                    eprintln!("Error while writing to worker channel. {e}");
+                                    Log::err(&format!(
+                                        "Error while writing to worker channel. {e}"
+                                    ));
                                 }
                             }
                             Err(e) => {
-                                eprintln!("Error while reading from IPC Socket...\n{e}");
+                                Log::err(&format!("Error while reading from IPC Socket...\n{e}"));
                             }
                         }
                     }
@@ -121,7 +124,7 @@ impl Master {
                                 _ = sock_writer.flush().await;
                             }
                             Err(e) => {
-                                eprintln!("Error while writing to IPC Socket...\n{e}");
+                                Log::err(&format!("Error while writing to IPC Socket...\n{e}"));
                             }
                         }
                     }

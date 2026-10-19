@@ -16,7 +16,7 @@ use crate::{
     extras::mls_provider::ConanMlsProvider,
     mls::{Addr, ConanGroup, ConanGroupError},
 };
-use conan_extras::{codec::JsonCodec, generate_name};
+use conan_extras::{codec::JsonCodec, generate_name, logs::Log};
 use conandatabase::{
     ConnectionClone, FromConnection,
     entities::{
@@ -93,7 +93,7 @@ impl CommandHandler {
         let chat = Chat::chat_to_rec(&text, idx);
         for _ in 0..3 {
             if let Err(e) = self.dbconn.insert_chat(chat.clone()) {
-                println!("Error inserting chat: {e}");
+                Log::err(&format!("Error inserting chat: {e}"));
             } else {
                 break;
             }
@@ -117,7 +117,7 @@ impl CommandHandler {
     }
 
     pub fn handle_msg_join(&self, peer_idx: u16) -> Result<(), Box<dyn Error>> {
-        println!("Accepting Invitation to Join Group..");
+        Log::debug("Accepting Invitation to Join Group..");
         let (signer, _, _) = MlsGroup::signer_from_expanded_key(&self.identity_key);
         let peers = Arc::clone(&self.peers);
         let provider = ConanMlsProvider::new(&self.dbconn.openmls())?;
@@ -132,12 +132,12 @@ impl CommandHandler {
         let key_package_ser = to_bytes(key_package.key_package())?;
         peer.command_sender
             .send(SlaveCmd::Msg(Msg::KeyPackage(key_package_ser)))?;
-        println!("peer idx: {peer_idx}");
+        Log::debug("peer idx: {peer_idx}");
         Ok(())
     }
 
     pub fn handle_msg_keypackage(&self, peer_idx: u16, data: &[u8]) -> Result<(), Box<dyn Error>> {
-        println!("Parsing Peer's KeyPackage..");
+        Log::debug("Parsing Peer's KeyPackage..");
         let key_package = from_bytes::<KeyPackage>(data)?;
         let invitation = self.invitation_memory.write().unwrap();
 
@@ -151,7 +151,7 @@ impl CommandHandler {
         {
             target_group
         } else {
-            println!("Group not in memory, extracting from Database.");
+            Log::warn("Group not in memory, extracting from Database.");
             self.asst_sndr
                 .send(Internal::IPCCmd(IPCCmd::InitiateGroup(group_id.clone())))?;
             let grp = MlsGroup::load(&self.openmls_store, &GroupId::from_slice(group_id))?
@@ -206,7 +206,7 @@ impl CommandHandler {
         welcome: Welcome,
     ) -> Result<(), Box<dyn Error>> {
         // parsed by the receiver
-        println!("Parsing Group Welcome..");
+        Log::debug("Parsing Group Welcome..");
         let mut peers = self.peers.write().unwrap();
         let Some(peer) = peers.get_mut(&peer_idx) else {
             return Err(ConanError::NotFound.into());
@@ -217,23 +217,22 @@ impl CommandHandler {
         let dbgroup = DBGroup::new(grp_id.clone(), generate_name(3..8));
         let dbgroup = self.dbconn.insert_group(dbgroup)?;
         for m in mls_grp.get_members()? {
-            println!("checking is admin");
             let is_admin = if self.dbconn.get_peer_from_addr(&m)?.is_some() {
                 mls_grp.is_admin(&m)?
             } else {
                 false
             };
-            println!("inserting member: {m}, is_admin: {is_admin}");
+            Log::debug(&format!("inserting member: {m}, is_admin: {is_admin}"));
             let peer = Peer::build(&generate_name(3..10), &m, false);
             self.dbconn.insert_member(dbgroup.id, peer, is_admin)?;
-            println!("member inserted");
+            Log::debug("member inserted");
         }
         peer.command_sender
             .send(SlaveCmd::Msg(Msg::GroupVerified(grp_id)))?;
 
         self.asst_sndr
             .send(Internal::IPCCmd(IPCCmd::GroupConnect(dbgroup.id)))?;
-        println!("checkpoint 1");
+        Log::debug("checkpoint 1");
         Ok(())
     }
 
@@ -243,7 +242,7 @@ impl CommandHandler {
         group_id: &[u8],
     ) -> Result<(), Box<dyn Error>> {
         // parsed by the sender
-        println!("Group Verified. Proceeding..");
+        Log::debug("Group Verified. Proceeding..");
         // removing from invitation memory, because the exchange is complete
         self.invitation_memory.write().unwrap().remove(&peer_idx);
         let mlsgrp = MlsGroup::load(&self.openmls_store, &GroupId::from_slice(group_id))?
@@ -320,10 +319,10 @@ impl CommandHandler {
                 self.dbconn.insert_group_chat(gc)?;
             }
             ProcessedMessageContent::ProposalMessage(proposal) => {
-                println!(
-                    "[DEBUG] Received proposal: {:?}",
+                Log::debug(&format!(
+                    "Received proposal: {:?}",
                     proposal.proposal().proposal_type()
-                );
+                ));
                 // for now we only act on members asking to leave on their own
                 if !matches!(proposal.proposal(), Proposal::SelfRemove) {
                     return Ok(());
@@ -389,7 +388,7 @@ impl CommandHandler {
         if let Ok(mut guard) = self.peers.write()
             && let Some(conn) = guard.remove(&idx)
         {
-            println!("Removing Connection: {}", conn.id);
+            Log::info(&format!("Removing Connection: {}", conn.id));
             if let Ok(Some(peer)) = self.dbconn.get_peer_from_id(conn.id) {
                 _ = ConanNotif::Sys(format!("{} disconnected.", peer.name));
             }

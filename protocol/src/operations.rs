@@ -6,6 +6,7 @@ use crate::entities::slave::Slave;
 use arti_client::{DataStream, TorClient};
 use base64::Engine;
 use conan_extras::generate_name;
+use conan_extras::logs::Log;
 use conancrypto::{
     aead::{self, EncryptedMessage, MessageKey},
     ratchet::{RatchetMessage, RatchetSession},
@@ -197,7 +198,7 @@ pub async fn listener_actor(
 
     let payload = msg.to_vec();
     // writing message to dialer
-    println!("Sending Signature & Public Key to peer.");
+    Log::info("Sending Signature & Public Key to peer.");
     #[allow(clippy::cast_possible_truncation)]
     writer.write_u16(payload.len() as u16).await?;
     writer.write_all(&payload).await?;
@@ -207,7 +208,7 @@ pub async fn listener_actor(
     let shared_secret_key = local_private_key.diffie_hellman(&rpk);
     let shared_secret_bytes = *shared_secret_key.as_bytes();
 
-    println!("Parsing peer's public key.");
+    Log::info("Parsing peer's public key.");
     let size = reader.read_u16().await? as usize;
     let mut buf = vec![0u8; size];
     let size = reader.read_exact(&mut buf).await?;
@@ -222,7 +223,10 @@ pub async fn listener_actor(
     };
     let local_hsid_bytes = local_hsid.as_ref();
     let remote_hsid = HsId::from(claimed_remote_hsid_bytes);
-    println!("Peer's Address: {}", remote_hsid.display_unredacted());
+    Log::debug(&format!(
+        "Peer's Address: {}",
+        remote_hsid.display_unredacted()
+    ));
     *assign_remote_hsid = Some(remote_hsid.display_unredacted().to_string());
     if local_hsid_bytes != &claimed_local_hsid_bytes {
         return Err("HsId key mismatch. Dropping connection.".into());
@@ -236,18 +240,18 @@ pub async fn listener_actor(
     let data = data.as_slice();
     let signature = Signature::from_bytes(&signature.try_into().unwrap());
     let verifying_key = VerifyingKey::from_bytes(&claimed_remote_hsid_bytes)?;
-    println!("Verifying Peer's Claim.");
+    Log::info("Verifying Peer's Claim.");
     verifying_key.verify(data, &signature)?;
 
     // if verified, we proceed to send a final `Verified` message to dialer
-    println!("Verified. Sending Approval.");
+    Log::info("Verified. Sending Approval.");
     let verified = handshake_encrypt(&shared_secret_bytes, Msg::Verified.to_vec().as_slice())?;
     #[allow(clippy::cast_possible_truncation)]
     writer.write_u16(verified.len() as u16).await?;
     writer.write_all(&verified).await?;
     writer.flush().await?;
 
-    println!("Verification Complete.");
+    Log::info("Verification Complete.");
 
     // Initialize ratchet session
     // Both sides derive Bob's ratchet key from the shared secret
@@ -288,12 +292,12 @@ where
     let de_msg = Msg::from_bytes(&buf[..size]);
 
     let mut remote_public_key = None;
-    println!("Performing X25519 Handshake.");
+    Log::info("Performing X25519 Handshake.");
     x25519_handshake(&mut remote_public_key, local_public_key, peer_addr, de_msg)?;
     let Some(remote_public_key) = remote_public_key else {
         return Err("Remote Public Key not set.".into());
     };
-    println!("Confirmed. Assigning Shared Secret Key using Diffie Hellman key exchange.");
+    Log::info("Confirmed. Assigning Shared Secret Key using Diffie Hellman key exchange.");
     let mut ssk = None;
     edhverify(local_private_key, remote_public_key, &mut ssk);
     let Some(shared_secret_key) = ssk else {
@@ -308,11 +312,14 @@ where
     data.extend_from_slice(remote_public_key.as_bytes());
     data.extend_from_slice(local_public_key.as_bytes());
     let data: [u8; 64] = data.try_into().unwrap();
-    println!("Signing, Encrypting, Sending Message for approval.");
+    Log::info("Signing, Encrypting, Sending Message for approval.");
     let signature = signing_key.sign(&data);
     let local_hsid_bytes = local_hsid.as_ref();
     let remote_hsid = HsId::from_str(peer_addr)?;
-    println!("Peer's Address: {}", remote_hsid.display_unredacted());
+    Log::debug(&format!(
+        "Peer's Address: {}",
+        remote_hsid.display_unredacted()
+    ));
     let remote_hsid_bytes = remote_hsid.as_ref();
     let msg = Msg::SignedAndPublicKey(
         signature.to_bytes().to_vec(),
@@ -328,7 +335,7 @@ where
     writer.flush().await?;
 
     // waiting for listener's approval
-    println!("Waiting for approval..");
+    Log::debug("Waiting for approval..");
     let size = reader.read_u16().await?;
     let mut buf = vec![0u8; size as usize];
     reader.read_exact(&mut buf).await?;
@@ -428,7 +435,7 @@ pub async fn connect_as_dialer(
     let service = Arc::clone(&service);
     let msg_sender = msg_sender.clone();
     for i in 1..=5 {
-        println!("Connecting to {addr}");
+        Log::debug(&format!("Connecting to {addr}"));
         match single_connect_as_dialer(
             Arc::clone(&tor_client),
             Arc::clone(&service),
@@ -443,7 +450,7 @@ pub async fn connect_as_dialer(
             Ok(_) => {
                 break;
             }
-            Err(e) => eprintln!("Error while connecting:\n{e:?}"),
+            Err(e) => Log::err(&format!("Error while connecting:\n{e:?}")),
         }
         if i == 5 {
             msg_sender
@@ -457,7 +464,7 @@ pub async fn connect_as_dialer(
                     "Retrying Connection. [{i}/5]"
                 )))
                 .unwrap();
-            eprintln!("Retrying...");
+            Log::info("Retrying...");
         }
     }
     Ok(())
@@ -479,7 +486,7 @@ pub async fn single_connect_as_dialer(
     let stream = match tor_client.connect(&(addr.clone(), SELF_PORT)).await {
         Ok(stream) => stream,
         Err(e) => {
-            eprintln!("Error while Connecting. Likely offline.\n{e:?}");
+            Log::err(&format!("Error while Connecting. Likely offline.\n{e:?}"));
             return Err(ConanError::ConnectionError);
         }
     };
@@ -528,7 +535,7 @@ pub async fn single_connect_as_dialer(
     } else {
         _ = trans.rollback();
     }
-    println!("Exchange Complete..");
+    Log::info("Exchange Complete..");
     msg_sender.send(IPCRes::Connected(idx, true)).unwrap();
 
     Ok(idx)

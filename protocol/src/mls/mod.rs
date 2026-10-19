@@ -6,6 +6,7 @@ use crate::{
     config::parse_config,
 };
 use conan_extras::codec::JsonCodec;
+use conan_extras::logs::Log;
 use conandatabase::ConnectionClone;
 use conandatabase::entities::peer::Peer;
 use conandatabase::{FromConnection, rusqlite::Connection};
@@ -236,7 +237,7 @@ impl ConanGroup for MlsGroup {
 
     fn is_admin(&self, addr: &str) -> Result<bool, ConanGroupError> {
         let admins = self.admins()?;
-        println!("is_admin: {admins:?}");
+        Log::debug(&format!("is_admin: {admins:?}"));
         if admins.is_empty() {
             return Ok(true);
         }

@@ -8,14 +8,13 @@ use crate::{
     },
     config::ConanConfig,
     constants::BOUNDED_CHANNEL_SIZE,
-    debug,
     entities::{manager_assistant::CommandHandler, slave::Slave},
     extras::mls_provider::ConanMlsProvider,
     mls::ConanGroup,
     operations::{connect_as_dialer, signing_key, single_connect_as_dialer},
 };
 use arti_client::{BootstrapBehavior, TorClient, TorClientConfig, config::CfgPath};
-use conan_extras::{codec::JsonCodec, generate_name};
+use conan_extras::{codec::JsonCodec, generate_name, logs::Log};
 use conandatabase::{
     ConnectionClone,
     entities::{
@@ -102,7 +101,7 @@ impl Manager {
         storage_builder.cache_dir(cache_path).state_dir(state_path);
         let tor_config = tor_config_builder.build()?;
 
-        debug!("Starting Server...");
+        Log::debug("Starting Server...");
         let tor_client = TorClient::builder()
             .bootstrap_behavior(BootstrapBehavior::OnDemand)
             .config(tor_config)
@@ -128,7 +127,7 @@ impl Manager {
             Some(s) => s,
             None => return Err("No HsId found.".into()),
         };
-        println!("Server Address: {}", hsid.display_unredacted());
+        Log::debug(&format!("Server Address: {}", hsid.display_unredacted()));
         let conn = Connection::open(&config.db_path)?;
         conn.execute(
             &format!(
@@ -168,7 +167,7 @@ impl Manager {
     /// # Errors
     /// # Panics
     pub fn init_server(&mut self) -> Result<(), Box<dyn Error>> {
-        debug!("Initializing Server.");
+        Log::debug("Initializing Server.");
         let recv = self.asst_recv.take().unwrap();
         let ressen = self.worker_sender.clone();
         tokio::spawn(async move {
@@ -199,7 +198,7 @@ impl Manager {
                     _ = msg_sender.send(IPCRes::Notification(
                         "Someone is trying to connect.".to_string(),
                     ));
-                    println!("Peer Detected.");
+                    Log::info("Peer Detected.");
                     tokio::spawn(async move {
                         match rendreq.accept().await {
                             Ok(mut stream) => {
@@ -223,13 +222,15 @@ impl Manager {
                                             let peer_idx = match conn.connect_as_listener().await {
                                                 Ok(s) => s,
                                                 Err(e) => {
-                                                    eprintln!("Cannot connect as listener.\n{e}");
+                                                    Log::err(&format!(
+                                                        "Cannot connect as listener.\n{e}"
+                                                    ));
                                                     continue;
                                                 }
                                             };
                                             if conn.spawn_communication().is_ok() {
-                                                println!(
-                                                    "Slave Communication Pipeline Established."
+                                                Log::info(
+                                                    "Slave Communication Pipeline Established.",
                                                 );
                                             }
                                             if let Ok(mut peers) = peers.write() {
@@ -237,13 +238,13 @@ impl Manager {
                                             }
                                         }
                                         Err(e) => {
-                                            eprintln!("Error in connecting to peer: {e}");
+                                            Log::err(&format!("Error in connecting to peer: {e}"));
                                         }
                                     }
                                 }
                             }
                             Err(e) => {
-                                eprintln!("Failed to complete handshake.\n{e}");
+                                Log::err(&format!("Failed to complete handshake.\n{e}"));
                             }
                         }
                     });
@@ -316,7 +317,7 @@ impl Manager {
 
     /// # Errors
     pub fn make_peer_join_group(&self, peer_id: u16, group_idx: u16) -> Result<(), Box<dyn Error>> {
-        println!("joining peer: {peer_id}, group idx: {group_idx}");
+        Log::debug("joining peer: {peer_id}, group idx: {group_idx}");
         #[allow(clippy::cast_possible_truncation)]
         let peers = Arc::clone(&self.peers);
         let Ok(mut peers) = peers.write() else {
@@ -397,7 +398,7 @@ impl Manager {
                     _ => continue,
                 };
                 if let Err(err) = res {
-                    eprintln!("Error in Msg: {err:?}");
+                    Log::err(&format!("Error in Msg: {err:?}"));
                 }
             }
         });
@@ -464,20 +465,20 @@ impl Manager {
                 if let Ok(idx) = res {
                     let peers = peers.write().unwrap();
                     if let Some(target) = peers.get(&idx) {
-                        println!("sending initiate group command");
+                        Log::debug("Sending initiate group command");
                         target
                             .command_sender
                             .send(SlaveCmd::Msg(Msg::InitiateGroup(group_id)))
                             .unwrap();
                     }
-                    println!("attempted to join.");
+                    Log::debug("attempted to join.");
                 }
             }
             if let Err(e) = msg_sender.send(IPCRes::GroupConnected(
                 format!("Connected to {}", dbgrp.name).to_string(),
                 dbgrp.id,
             )) {
-                eprintln!("Couldn't Send Signal. {e:?}");
+                Log::err(&format!("Couldn't Send Signal. {e:?}"));
             }
         });
 
@@ -489,19 +490,19 @@ impl Manager {
     fn send_msg(&self, grp: &mut MlsGroup, msg: &Msg) -> Result<(), Box<dyn Error>> {
         let peers = self.peers.read().unwrap();
         let members = grp.get_members()?;
-        println!("list members: {members:#?}");
+        Log::debug(&format!("list members: {members:#?}"));
         for m in &members {
             let msg = msg.clone();
             // fanning out to all active members
             let Some(peer) = self.dbconn.get_peer_from_addr(m)? else {
-                println!("Could not get targetted member.");
+                Log::err("Could not get targetted member.");
                 continue;
             };
             if let Some(peer) = peers.get(&peer.id) {
-                println!("sending to group");
+                Log::debug("sending to group");
                 peer.command_sender.send(SlaveCmd::Msg(msg))?;
             } else {
-                println!("Targetted Peer not found.");
+                Log::err("Targetted Peer not found.");
             }
         }
         Ok(())

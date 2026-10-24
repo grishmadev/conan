@@ -5,13 +5,7 @@ use crate::{
         ipccmd::IPCCmd,
         ipcres::IPCRes,
         msg::{Msg, SlaveCmd},
-    },
-    config::ConanConfig,
-    constants::BOUNDED_CHANNEL_SIZE,
-    entities::{manager_assistant::CommandHandler, slave::Slave},
-    extras::mls_provider::ConanMlsProvider,
-    mls::ConanGroup,
-    operations::{connect_as_dialer, signing_key, single_connect_as_dialer},
+    }, config::ConanConfig, constants::BOUNDED_CHANNEL_SIZE, entities::{manager_assistant::CommandHandler, slave::Slave}, extras::mls_provider::ConanMlsProvider, mls::{ConanGroup, ConanGroupError}, operations::{connect_as_dialer, signing_key, single_connect_as_dialer},
 };
 use arti_client::{BootstrapBehavior, TorClient, TorClientConfig, config::CfgPath};
 use conan_extras::{codec::JsonCodec, generate_name, logs::Log};
@@ -309,13 +303,13 @@ impl Manager {
         let openmls_store = self.dbconn.openmls();
         let storage = SqliteStorageProvider::<JsonCodec, _>::new(&openmls_store);
         let mlsgrp = MlsGroup::load(&storage, &GroupId::from_slice(&dbgrp.group_id))?
-            .ok_or(ConanError::NotFound)?;
+            .ok_or(ConanGroupError::NotFound)?;
         Ok(mlsgrp)
     }
 
     /// # Errors
     pub fn make_peer_join_group(&self, peer_id: u16, group_idx: u16) -> Result<(), Box<dyn Error>> {
-        Log::debug("joining peer: {peer_id}, group idx: {group_idx}");
+        Log::debug(&format!("joining peer: {peer_id}, group idx: {group_idx}"));
         #[allow(clippy::cast_possible_truncation)]
         let peers = Arc::clone(&self.peers);
         let Ok(mut peers) = peers.write() else {
@@ -323,27 +317,33 @@ impl Manager {
         };
         #[allow(clippy::cast_possible_truncation)]
         let Some(target) = peers.get_mut(&peer_id) else {
-            return Err(ConanError::NotFound.into());
+            return Err(ConanError::NotFound("Peer".to_string()).into());
         };
 
+        // Ask the Joinee to send its keypackage using [`Msg::JoinGroup`] cmd
         target.command_sender.send(SlaveCmd::Msg(Msg::JoinGroup))?;
         #[allow(clippy::cast_possible_truncation)]
         let Ok(mut groups) = self.groups.write() else {
             return Err(ConanError::ParseError.into());
         };
         let dbgroup = self.dbconn.get_group_by_idx(group_idx)?;
-        let self_link = self
-            .dbconn
-            .get_peer_from_id(1)?
-            .ok_or(ConanError::from(DatabaseError::NotFound))?
-            .address;
-        let group = MlsGroup::build(&self.identity_key, &self_link)?;
+        // let self_link = self
+        //     .dbconn
+        //     .get_peer_from_id(1)?
+        //     .ok_or(ConanError::from(DatabaseError::NotFound))?
+        //     .address;
+        // let group = MlsGroup::build(&self.identity_key, &self_link)?;
+        Log::debug(&format!("Loading group from database: {:?}", &dbgroup.group_id));
+        let group = MlsGroup::load(self.provider.storage(), &GroupId::from_slice(&dbgroup.group_id))?
+        .ok_or(ConanGroupError::NotFound)?;
         // Loading it in memory
+        Log::debug("Loading group in memory.");
         groups.insert(group_idx, group);
-        let Ok(mut invitation) = self.invitation_memory.write() else {
+        if let Ok(mut invitation) = self.invitation_memory.write() {
+            invitation.insert(peer_id, dbgroup.group_id);
+        } else {
             return Err(ConanError::ParseError.into());
-        };
-        invitation.insert(peer_id, dbgroup.group_id);
+        }
         Ok(())
     }
     /// Used to setup Slave to Master communication Pipeline

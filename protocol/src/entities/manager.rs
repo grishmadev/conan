@@ -130,17 +130,15 @@ impl Manager {
         Log::debug(&format!("Server Address: {}", hsid.display_unredacted()));
         let conn = Connection::open(&config.db_path)?;
         conn.execute(
-            &format!(
-                "INSERT OR REPLACE INTO peer (id, name, address, is_friend) VALUES (1, 'Me', '{}', TRUE)",
-                hsid.display_unredacted()
-            ),
-            (),
+            "INSERT INTO peer (id, name, address, is_friend) VALUES (1, 'Me', ?1, TRUE)
+             ON CONFLICT(id) DO UPDATE SET address = excluded.address",
+            [hsid.display_unredacted().to_string()],
         )?;
         let (response_sender, response_receiver) =
             broadcast::channel::<(u16, Internal)>(BOUNDED_CHANNEL_SIZE);
         let (asst_sndr, asst_recv) = std::sync::mpsc::channel();
         let identity_key = signing_key().await?;
-        let provider = ConanMlsProvider::new(&conn)?;
+        let provider = ConanMlsProvider::new(&conn.openmls())?;
 
         Ok(Self {
             tor_client,

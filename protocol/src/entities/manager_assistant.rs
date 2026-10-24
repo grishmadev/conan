@@ -231,7 +231,6 @@ impl CommandHandler {
             Log::debug(&format!("inserting member: {m}, is_admin: {is_admin}"));
             let peer = Peer::build(&generate_name(3..10), &m, false);
             self.dbconn.insert_member(dbgroup.id, peer, is_admin)?;
-            Log::debug("member inserted");
         }
         peer.command_sender
             .send(SlaveCmd::Msg(Msg::GroupVerified(grp_id)))?;
@@ -378,7 +377,27 @@ impl CommandHandler {
                     )))?;
                     return Err(ConanGroupError::NotAdmin.into());
                 }
-                group.merge_staged_commit(&self.provider, *commit)?;
+                let commit = *commit;
+                for p in commit.add_proposals() {
+                    let kp = p.add_proposal().key_package();
+                    let cred = kp.leaf_node().credential().to_addr();
+                    let peer = if let Some(peer) = self.dbconn.get_peer_from_addr(&cred)? {
+                        peer
+                    } else {
+                        Peer::build(&generate_name(3..8), &cred, false)
+                    };
+                    self.dbconn.insert_member(dbgroup.id, peer, false)?;
+                }
+                for p in commit.remove_proposals() {
+                    let kp = p.remove_proposal();
+                    let member = group
+                        .member_at(kp.removed())
+                        .ok_or(ConanError::NotFound("Member".to_string()))?;
+                    let addr = member.credential.to_addr();
+                    let peer = self.dbconn.get_peer_from_addr(&addr)?.unwrap();
+                    self.dbconn.remove_member(peer.id, dbgroup.id)?;
+                }
+                group.merge_staged_commit(&self.provider, commit)?;
             }
             _ => {}
         }

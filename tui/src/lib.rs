@@ -57,8 +57,6 @@ pub struct App {
     pub contacts: Vec<Peer>,
     /// List of all the groups
     pub groups: Vec<DBGroup>,
-    /// List of group members when a group is selected in vec<(peer, is admin)>
-    pub group_members: Option<Vec<(Peer, bool)>>,
     /// Current contact
     pub contact_idx: ListState,
     /// All the Chats for the current contact/group
@@ -115,7 +113,6 @@ impl App {
             stream,
             contacts: vec![],
             groups: vec![],
-            group_members: None,
             contact_idx: ListState::default(),
             chats: vec![],
             chat_buf: String::new(),
@@ -266,8 +263,21 @@ impl App {
             } => {
                 self.render_command_palette(f, text, cursor_pos);
             }
-            Screen::GroupDescription(idx) => {
-                self.render_group_description(f, idx);
+            Screen::GroupDescription {
+                ref group_idx,
+                ref selected_member,
+                ref members,
+                ref selected_option,
+                ref options,
+            } => {
+                self.render_group_description(
+                    f,
+                    group_idx,
+                    options,
+                    selected_option,
+                    members,
+                    selected_member,
+                );
             }
         }
     }

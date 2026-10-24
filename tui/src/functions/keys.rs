@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use conandatabase::entities::tuichat::TuiChat;
-use conanprotocol::comm::enums::ipccmd::IPCCmd;
+use conanprotocol::comm::enums::{group_actions::GroupOptions, ipccmd::IPCCmd};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 
 use crate::{
@@ -43,7 +43,7 @@ pub trait Keys {
     ///
     /// # Errors
     fn handle_grpdsc_screen(&mut self, key: KeyEvent) -> std::io::Result<()>;
-    /// Toggles tab when called
+    /// Toggle between contacts and chats
     fn toggle_tab(&mut self);
     /// Triggers next idx when called
     fn next_idx(&mut self);
@@ -80,7 +80,7 @@ impl Keys for App {
                 Screen::CommandPalette { .. } => {
                     self.handle_command_palette(key).await?;
                 }
-                Screen::GroupDescription(..) => {
+                Screen::GroupDescription { .. } => {
                     self.handle_grpdsc_screen(key)?;
                 }
             }
@@ -114,7 +114,13 @@ impl Keys for App {
                 let (false, Some(idx)) = self.current_contact() else {
                     return Ok(());
                 };
-                self.active_screen = Screen::GroupDescription(idx as u16);
+                self.active_screen = Screen::GroupDescription {
+                    group_idx: idx as u16,
+                    selected_member: None,
+                    members: vec![],
+                    selected_option: None,
+                    options: GroupOptions::iterator(),
+                };
             }
             KeyCode::Char('D' | 'd')
                 if matches!(self.tab, Tab::Contact)
@@ -584,12 +590,98 @@ impl Keys for App {
     }
 
     fn handle_grpdsc_screen(&mut self, key: KeyEvent) -> std::io::Result<()> {
-        let Screen::GroupDescription(_) = self.active_screen else {
+        let Screen::GroupDescription {
+            ref mut selected_option,
+            ref mut selected_member,
+            ref mut group_idx,
+            ref members,
+            ref options,
+        } = self.active_screen
+        else {
             return Ok(());
         };
+        let member_count = members.len();
         match key.code {
             KeyCode::Esc | KeyCode::Char(' ') => {
-                self.active_screen = Screen::None;
+                if selected_option.is_some() {
+                    *selected_option = None;
+                } else {
+                    self.active_screen = Screen::None;
+                }
+            }
+            #[allow(clippy::cast_possible_truncation)]
+            KeyCode::Char('j') | KeyCode::Down => {
+                if let Some(selected_option) = selected_option {
+                    *selected_option = if *selected_option + 1 < options.len() as u16 {
+                        *selected_option + 1
+                    } else {
+                        0
+                    };
+                } else {
+                    if members.is_empty() {
+                        return Ok(());
+                    }
+                    let Some(selected_member) = selected_member else {
+                        *selected_member = Some(0);
+                        return Ok(());
+                    };
+                    *selected_member = if *selected_member + 1 < member_count as u16 {
+                        *selected_member + 1
+                    } else {
+                        0
+                    };
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up =>
+            {
+                #[allow(clippy::cast_possible_truncation)]
+                if let Some(selected_option) = selected_option {
+                    *selected_option = if *selected_option == 0 {
+                        options.len() as u16 - 1
+                    } else {
+                        *selected_option - 1
+                    };
+                } else {
+                    if members.is_empty() {
+                        return Ok(());
+                    }
+                    #[allow(clippy::cast_possible_truncation)]
+                    let Some(selected_member) = selected_member else {
+                        *selected_member = Some(members.len() as u16 - 1);
+                        return Ok(());
+                    };
+                    *selected_member = if *selected_member == 0 {
+                        members.len() as u16 - 1
+                    } else {
+                        *selected_member - 1
+                    };
+                }
+            }
+            KeyCode::Enter => {
+                // options are open
+                if let Some(option_idx) = selected_option
+                    && let Some(member_idx) = selected_member
+                {
+                    let option = &options[*option_idx as usize];
+                    match *option {
+                        GroupOptions::PromoteMember => {
+                            _ = self.sender.send(IPCCmd::Promote(*group_idx, *member_idx));
+                        }
+                        GroupOptions::DemoteMember => {
+                            _ = self.sender.send(IPCCmd::Demote(*group_idx, *member_idx));
+                        }
+                        GroupOptions::RemoveMember => {
+                            _ = self
+                                .sender
+                                .send(IPCCmd::RemoveFromGroup(*group_idx, *member_idx));
+                        }
+                    }
+                    *selected_option = None;
+                } else
+                // members are open
+                if member_count > 0 {
+                    *selected_option = Some(0);
+                }
             }
             _ => {}
         }

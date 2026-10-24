@@ -1,4 +1,6 @@
 use crate::functions::{ConfirmMode, InputMode, LoadingMode};
+use conandatabase::entities::peer::Peer;
+use conanprotocol::comm::enums::group_actions::GroupOptions;
 use crossterm::event::KeyEvent;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,6 +78,18 @@ pub enum Screen {
         cursor_pos: usize,
         options: Vec<String>,
     },
-    GroupDescription(u16),
+    /// Group Description Screen
+    GroupDescription {
+        /// Index of the targetted group
+        group_idx: u16,
+        /// Index of selected member
+        selected_member: Option<u16>,
+        /// List of members
+        members: Vec<(Peer, bool)>,
+        /// Index of selected option
+        selected_option: Option<u16>,
+        /// List of the Group Options
+        options: Vec<GroupOptions>,
+    },
     None,
 }

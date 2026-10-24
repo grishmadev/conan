@@ -239,7 +239,7 @@ impl ManageIPC for App {
         &mut self,
         group_idx: u16,
         chats: Vec<TuiChat>,
-        members: Vec<(Peer, bool)>,
+        updated_members: Vec<(Peer, bool)>,
     ) -> Result<(), Box<dyn Error>> {
         let (false, Some(idx)) = self.current_contact() else {
             return Ok(());
@@ -251,7 +251,12 @@ impl ManageIPC for App {
             return Ok(());
         }
         self.chats = chats;
-        self.group_members = Some(members);
+        if let Screen::GroupDescription {
+            ref mut members, ..
+        } = self.active_screen
+        {
+            *members = updated_members;
+        }
         Ok(())
     }
 

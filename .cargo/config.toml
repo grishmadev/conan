@@ -1,8 +1,19 @@
 [env]
 RUST_BACKTRACE = "1"
 
+# install `mold` for faster linking
 [target.x86_64-unknown-linux-gnu]
 rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 
+[profile.release]
+opt-level = 3
+
 [profile.release.package."*"]
-opt-level = 2
+opt-level = 3
+
+# This profile is for debugging.
+[profile.profiling]
+inherits = "release"
+opt-level = 1
+lto = false
+debug = "line-tables-only"

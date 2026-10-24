@@ -116,6 +116,12 @@ impl CommandHandler {
         Ok(())
     }
 
+    /// Handle [`Msg::JoinGroup`] cmd from peer
+    /// Replies with `KeyPackage` to sender
+    /// Step 2 of Joining Group
+    /// # Errors
+    /// * [`ConanError::NotFound`]
+    /// * [`ConanError::ParseError`]
     pub fn handle_msg_join(&self, peer_idx: u16) -> Result<(), Box<dyn Error>> {
         Log::debug("Accepting Invitation to Join Group..");
         let (signer, _, _) = MlsGroup::signer_from_expanded_key(&self.identity_key);

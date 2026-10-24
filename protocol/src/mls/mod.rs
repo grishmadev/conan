@@ -1,4 +1,5 @@
 use crate::comm::enums::error::ConanError;
+use crate::comm::notification::ConanNotif;
 use crate::constants::MLS_ADMIN_ID;
 use crate::extras::mls_provider::ConanMlsProvider;
 use crate::{
@@ -254,6 +255,7 @@ impl ConanGroup for MlsGroup {
         let cred = d.credential.serialized_content();
         let addr = from_bytes::<String>(cred).unwrap();
         if !self.is_admin(&addr)? {
+            _ = ConanNotif::Sys("You are not Admin".to_string()).notify();
             return Err(ConanGroupError::NotAdmin);
         }
         Ok(())

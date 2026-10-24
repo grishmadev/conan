@@ -265,17 +265,36 @@ impl ServerHandler {
             .get_peer_from_id(1)?
             .ok_or("Cannot find self link")?;
         let new_group = MlsGroup::build(&self.signing_key, &me.address)?;
-
         let name = if let Some(name) = name {
             name
         } else {
             generate_name(3..8)
         };
         let dbgroup = DBGroup::new(new_group.group_id().to_vec(), name);
-        manager.dbconn.insert_group(dbgroup)?;
+        let dbgroup = manager.dbconn.insert_group(dbgroup)?;
+        // adding self as admin because self created group
+        // and is the first member
+        let me = manager
+            .dbconn
+            .get_peer_from_id(1)?
+            .ok_or(ConanError::NotFound("Self".to_string()))?;
+        manager.dbconn.insert_member(dbgroup.id, me, true)?;
         Ok(())
     }
 
+    /// Adds the peer `peer_idx` to the group `group_idx`.
+    ///
+    /// The peer is asked to join the group and the group is loaded in memory
+    /// so that it can be used right away. If the peer is not connected, an
+    /// [`IPCRes::Error`] is reported back to the TUI.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the peer cannot be invited to the group.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the list of the active peers is locked.
     fn add_to_group(&self, group_idx: u16, peer_idx: u16) -> Result<(), Box<dyn Error>> {
         if !self.manager.peers.read().unwrap().contains_key(&peer_idx) {
             self.manager

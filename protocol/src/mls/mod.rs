@@ -218,7 +218,7 @@ impl ConanGroup for MlsGroup {
         let id_bytes = to_bytes(peer.address.clone())?;
         let leaf_idx = self
             .member_leaf_index(&BasicCredential::new(id_bytes).into())
-            .ok_or(ConanError::NotFound)?;
+            .ok_or(ConanError::NotFound("Leaf".into()))?;
         let leaf_idx_slice = std::slice::from_ref(&leaf_idx);
         let (commit, _, _) = self.remove_members(provider, signer, leaf_idx_slice)?;
         self.merge_pending_commit(provider)?;

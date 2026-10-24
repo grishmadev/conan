@@ -5,8 +5,8 @@ use thiserror::Error;
 pub enum ConanError {
     #[error("Could not connect.")]
     ConnectionError,
-    #[error("Cannot be found.")]
-    NotFound,
+    #[error("{0} Cannot be found.")]
+    NotFound(String),
     #[error("Error while parsing")]
     ParseError,
     #[error("Error in Database")]

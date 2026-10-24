@@ -360,7 +360,7 @@ impl Manager {
         // let config = self.config.clone();
         let expanded_key =
             ExpandedKeypair::from_secret_key_bytes(self.identity_key.to_secret_key_bytes())
-                .ok_or(ConanError::NotFound)?;
+                .ok_or(ConanError::NotFound("Identity key".to_string()))?;
         let provider = ConanMlsProvider::new(&dbconn.openmls())?;
         self.server_ready.store(true, Ordering::SeqCst);
         let sndr = self.asst_sndr.clone();
@@ -545,7 +545,7 @@ impl Manager {
         let peer = self
             .dbconn
             .get_peer_from_id(peer_idx)?
-            .ok_or(ConanError::NotFound)?;
+            .ok_or(DatabaseError::NotFound)?;
         let dbgrp = self
             .dbconn
             .get_group_by_group_id(&grp.group_id().to_vec())?;
@@ -562,7 +562,7 @@ impl Manager {
         let peer = self
             .dbconn
             .get_peer_from_id(peer_idx)?
-            .ok_or(ConanError::NotFound)?;
+            .ok_or(DatabaseError::NotFound)?;
         let (signer, _, _) = MlsGroup::signer_from_expanded_key(&self.identity_key);
         let commit = grp.promote_to_admin(&peer, &self.provider, &signer)?;
         self.send_commit(grp, &commit)?;
@@ -575,7 +575,7 @@ impl Manager {
         let peer = self
             .dbconn
             .get_peer_from_id(peer_idx)?
-            .ok_or(ConanError::NotFound)?;
+            .ok_or(DatabaseError::NotFound)?;
         let (signer, _, _) = MlsGroup::signer_from_expanded_key(&self.identity_key);
         let commit = grp.demote_to_member(&peer, &self.provider, &signer)?;
         self.send_commit(grp, &commit)?;

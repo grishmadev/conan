@@ -127,22 +127,27 @@ impl CommandHandler {
             return Err(ConanError::ParseError.into());
         };
         let Some(peer) = peers.get_mut(&peer_idx) else {
-            return Err(ConanError::NotFound.into());
+            return Err(ConanError::NotFound("Peer".to_string()).into());
         };
         let key_package_ser = to_bytes(key_package.key_package())?;
         peer.command_sender
             .send(SlaveCmd::Msg(Msg::KeyPackage(key_package_ser)))?;
-        Log::debug("peer idx: {peer_idx}");
+        Log::debug(&format!("KeyPackage sent to peer_id: {peer_idx}"));
         Ok(())
     }
 
+    /// Handle [`Msg::KeyPackage`] cmd from peer
+    /// Step 3 of Joining Group
+    /// # Errors
+    /// * [`ConanError::NotFound`]
+    /// * [`ConanGroupError::NotFound`]
     pub fn handle_msg_keypackage(&self, peer_idx: u16, data: &[u8]) -> Result<(), Box<dyn Error>> {
         Log::debug("Parsing Peer's KeyPackage..");
         let key_package = from_bytes::<KeyPackage>(data)?;
         let invitation = self.invitation_memory.write().unwrap();
 
         let Some(group_id) = invitation.get(&peer_idx) else {
-            return Err(ConanGroupError::NotFound.into());
+            return Err(ConanError::NotFound("Invitation".to_string()).into());
         };
         let mut groups = self.groups.write().unwrap();
         let (_grp_idx, target_group) = if let Some(target_group) = groups
@@ -166,11 +171,12 @@ impl CommandHandler {
             };
             target_group
         };
+        // Adding the joinee via it's `KeyPackage`
         let (commit, welcome) =
             target_group.add_member(&self.provider, &self.signer, &key_package)?;
         let mut peers = self.peers.write().unwrap();
         let Some(peer) = peers.get_mut(&peer_idx) else {
-            return Err(ConanError::NotFound.into());
+            return Err(ConanError::NotFound("Peer".into()).into());
         };
         let MlsMessageBodyOut::Welcome(welcome) = welcome.body().clone() else {
             return Err("No Welcome found. Ignoring.".into());
@@ -209,7 +215,7 @@ impl CommandHandler {
         Log::debug("Parsing Group Welcome..");
         let mut peers = self.peers.write().unwrap();
         let Some(peer) = peers.get_mut(&peer_idx) else {
-            return Err(ConanError::NotFound.into());
+            return Err(ConanError::NotFound("Peer".to_string()).into());
         };
         let mls_grp = MlsGroup::join_group(&self.provider, welcome)?;
         let grp_id = mls_grp.group_id().to_vec();
@@ -246,7 +252,7 @@ impl CommandHandler {
         // removing from invitation memory, because the exchange is complete
         self.invitation_memory.write().unwrap().remove(&peer_idx);
         let mlsgrp = MlsGroup::load(&self.openmls_store, &GroupId::from_slice(group_id))?
-            .ok_or(ConanError::NotFound)?;
+            .ok_or(ConanError::NotFound("Group".to_string()))?;
         let db_group = self.dbconn.get_group_by_group_id(group_id)?;
         let mut groups = self.groups.write().unwrap();
         groups.insert(db_group.id, mlsgrp);
@@ -258,7 +264,7 @@ impl CommandHandler {
         let peer = self
             .dbconn
             .get_peer_from_id(peer_idx)?
-            .ok_or("Unknown Peer dropping connection")?;
+            .ok_or(ConanError::NotFound("Peer".to_string()))?;
         self.dbconn.insert_member(db_group.id, peer, false)?;
 
         ConanNotif::Sys("Group Exchange Complete.".into()).notify()?;
@@ -267,20 +273,20 @@ impl CommandHandler {
 
     pub fn handle_msg_group_error(&self, peer_idx: u16, err: String) -> Result<(), Box<dyn Error>> {
         let Ok(mut invitation) = self.invitation_memory.write() else {
-            return Err("Cannot write to group.".into());
+            return Err(ConanError::ParseError.into());
         };
         let group_id = invitation
             .remove(&peer_idx)
-            .ok_or("Could not remove group.")?;
+            .ok_or(ConanError::NotFound("Invitation".to_string()))?;
         let group_id = GroupId::from_slice(&group_id);
         let mut groups = self.groups.write().unwrap();
         let Some((_grp_idx, group)) = groups.iter_mut().find(|f| f.1.group_id() == &group_id)
         else {
-            return Err("Could not find targetted group".into());
+            return Err(ConanError::NotFound("Group".to_string()).into());
         };
         group.clear_pending_commit(&self.openmls_store)?;
         let db_group = self.dbconn.get_group_by_group_id(&group_id.to_vec())?;
-        if !group.members().collect::<Vec<_>>().is_empty() {
+        if group.members().next().is_none() {
             groups.remove(&db_group.id);
         }
         ConanNotif::Sys(err).notify()?;
@@ -297,10 +303,11 @@ impl CommandHandler {
         let mut groups = self.groups.write().unwrap();
         let dbgroup = self.dbconn.get_group_by_group_id(group_id)?;
         let Some(group) = groups.get_mut(&dbgroup.id) else {
-            return Err(ConanError::NotFound.into());
+            return Err(ConanError::NotFound("Group".to_string()).into());
         };
         let message = message.try_into_protocol_message()?;
         let processed_message = group.process_message(&self.provider, message)?;
+        // let sender = processed_message.sender();
         let sender_addr = processed_message.credential().to_addr();
         let content = processed_message.into_content();
         match content {

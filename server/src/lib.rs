@@ -358,18 +358,40 @@ impl ServerHandler {
         Ok(())
     }
 
+    /// Promotes the peer `peer_idx` to an admin of the group `group_idx`.
+    ///
+    /// The promotion is committed to the MLS group and broadcast to all the
+    /// members of the group.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the group is not loaded in memory or if the member
+    /// cannot be promoted.
     fn promote(&self, group_idx: u16, peer_idx: u16) -> Result<(), Box<dyn Error>> {
         if let Ok(mut groups) = self.manager.groups.write() {
-            let group = groups.get_mut(&group_idx).ok_or(ConanError::NotFound)?;
+            let group = groups
+                .get_mut(&group_idx)
+                .ok_or(ConanError::NotFound("Group".into()))?;
             self.manager.promote_member(group, peer_idx)?;
             return Ok(());
         }
         Err(ConanError::Locked.into())
     }
 
+    /// Demotes the admin `peer_idx` to a normal member of the group `group_idx`.
+    ///
+    /// The demotion is committed to the MLS group and broadcast to all the
+    /// members of the group.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the group is not loaded in memory or if the admin
+    /// cannot be demoted.
     fn demote(&self, group_idx: u16, peer_idx: u16) -> Result<(), Box<dyn Error>> {
         if let Ok(mut groups) = self.manager.groups.write() {
-            let group = groups.get_mut(&group_idx).ok_or(ConanError::NotFound)?;
+            let group = groups
+                .get_mut(&group_idx)
+                .ok_or(ConanError::NotFound("Group".into()))?;
             self.manager.demote_member(group, peer_idx)?;
             return Ok(());
         }

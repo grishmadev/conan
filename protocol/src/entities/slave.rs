@@ -104,24 +104,23 @@ impl Slave {
         let ratchet = Arc::clone(self.ratchet_session.as_ref().unwrap());
         tokio::spawn(async move {
             let ratchet = Arc::clone(&ratchet);
-            loop {
-                if let Ok(data) = cmd_rec.recv().await {
-                    let mut cmd = None;
-                    match data {
-                        SlaveCmd::Msg(msg) => {
-                            cmd = Some(msg);
-                        }
-                        SlaveCmd::Shutdown => {
-                            writer.shutdown().await.unwrap();
-                        }
+            while let Ok(data) = cmd_rec.recv().await {
+                let mut cmd = None;
+                match data {
+                    SlaveCmd::Msg(msg) => {
+                        cmd = Some(msg);
                     }
-                    if let Some(cmd) = cmd
-                        && let Err(e) = send(&mut writer, cmd, &ratchet).await
-                    {
-                        Log::err(&format!("{:?}", ConanError::Other(e.to_string())));
+                    SlaveCmd::Shutdown => {
+                        writer.shutdown().await.unwrap();
                     }
                 }
+                if let Some(cmd) = cmd
+                    && let Err(e) = send(&mut writer, cmd, &ratchet).await
+                {
+                    Log::err(&format!("{:?}", ConanError::Other(e.to_string())));
+                }
             }
+            Log::err("Error in receiving further commands. Breaking contact.");
         });
         Ok(())
     }

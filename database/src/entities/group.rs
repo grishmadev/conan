@@ -2,8 +2,6 @@ use bincode::{Decode, Encode};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
-use crate::entities::{member::GroupMember, peer::PeerData};
-
 #[derive(Debug, Encode, Decode, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DBGroup {
     pub id: u16,
@@ -78,10 +76,6 @@ impl ConnectionGroup for Connection {
                         connected: false,
                     })
                 })?;
-                let me = self
-                    .get_peer_from_id(1)?
-                    .ok_or(rusqlite::Error::QueryReturnedNoRows)?;
-                self.insert_member(row.id, me, true)?;
                 Some(row)
             }
             Err(e) => return Err(e),

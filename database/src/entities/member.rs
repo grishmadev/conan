@@ -94,9 +94,8 @@ impl GroupMember for Connection {
             // unknown: add it as a peer first
             None => self.insert_peer(member)?,
         };
-        // `INSERT OR REPLACE` keeps a single membership row per (group, peer)
         let res: usize = self.execute(
-            "INSERT OR REPLACE INTO group_to_peer (group_id, peer_id, is_admin) VALUES (?1, ?2, ?3)",
+            "INSERT INTO group_to_peer (group_id, peer_id, is_admin) VALUES (?1, ?2, ?3)",
             params![group_idx, member.id, is_admin],
         )?;
         if res >= 1 {

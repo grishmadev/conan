@@ -142,12 +142,9 @@ impl ServerHandler {
             IPCCmd::GroupText(grp_idx, text) => {
                 self.group_text(grp_idx, &text)?;
             }
-            // TODO: Add a trigger in TUI side
             IPCCmd::Promote(group_idx, peer_idx) => {
                 self.promote(group_idx, peer_idx)?;
             }
-
-            // TODO: Add a trigger in TUI side
             IPCCmd::Demote(group_idx, peer_idx) => {
                 self.demote(group_idx, peer_idx)?;
             }
@@ -473,6 +470,8 @@ impl ServerHandler {
         if let Ok(mut groups) = self.manager.groups.write() {
             let target_grp = groups.get_mut(&group_idx).unwrap();
             self.manager.remove_member(target_grp, peer_idx)?;
+        } else {
+            return Err(ConanError::Locked.into());
         }
         Ok(())
     }

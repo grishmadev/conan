@@ -3,9 +3,9 @@ use std::fmt::Display;
 #[derive(Debug, Eq, PartialEq, Clone)]
 /// Used for Determining group actions that can be taken on a group member
 pub enum GroupOptions {
-    /// Used to promote a member to admin
+    /// Used to promote from member to admin
     PromoteMember,
-    /// Used to demote a member from admin
+    /// Used to demote from admin to member
     DemoteMember,
     /// Used to remove a member from a group
     RemoveMember,

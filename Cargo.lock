@@ -1157,6 +1157,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "conan-kademlia"
+version = "2.2.0"
+dependencies = [
+ "safelog",
+ "tor-hsservice",
+]
+
+[[package]]
 name = "conan-protocol"
 version = "2.2.0"
 dependencies = [
@@ -1170,6 +1178,7 @@ dependencies = [
  "conan-crypto",
  "conan-database",
  "conan-extras",
+ "conan-kademlia",
  "config",
  "ed25519-dalek 3.0.0",
  "futures",

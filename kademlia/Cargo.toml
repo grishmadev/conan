@@ -1,0 +1,16 @@
+[package]
+name = "conan-kademlia"
+description = "Conan Library for Partitioning"
+authors.workspace = true
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+tor-hsservice.workspace = true
+safelog.workspace = true
+
+[lints]
+workspace = true

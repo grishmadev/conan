@@ -17,6 +17,7 @@ use crate::{
     mls::{Addr, ConanGroup, ConanGroupError},
 };
 use conan_extras::{codec::JsonCodec, generate_name, logs::Log};
+use conan_kademlia::{RoutingTable, nodeid::NodeId};
 use conandatabase::{
     ConnectionClone, FromConnection,
     entities::{
@@ -26,6 +27,7 @@ use conandatabase::{
         member::GroupMember,
         peer::{Peer, PeerData},
     },
+    error::DatabaseError,
     rusqlite::Connection,
 };
 use openmls::{
@@ -50,7 +52,7 @@ where
     C: Codec,
 {
     peers: Arc<RwLock<HashMap<u16, Slave>>>,
-    groups: Arc<RwLock<HashMap<u16, MlsGroup>>>,
+    groups: Arc<RwLock<HashMap<u16, (MlsGroup, RoutingTable)>>>,
     dbconn: Connection,
     msg_sen: broadcast::Sender<IPCRes>,
     openmls_store: SqliteStorageProvider<C, Connection>,
@@ -64,7 +66,7 @@ where
 impl CommandHandler {
     pub fn new(
         peers: Arc<RwLock<HashMap<u16, Slave>>>,
-        groups: Arc<RwLock<HashMap<u16, MlsGroup>>>,
+        groups: Arc<RwLock<HashMap<u16, (MlsGroup, RoutingTable)>>>,
         invitation_memory: Arc<RwLock<HashMap<u16, Vec<u8>>>>,
         msg_sen: broadcast::Sender<IPCRes>,
         expanded_key: ExpandedKeypair,
@@ -156,9 +158,9 @@ impl CommandHandler {
             return Err(ConanError::NotFound("Invitation".to_string()).into());
         };
         let mut groups = self.groups.write().unwrap();
-        let (_grp_idx, target_group) = if let Some(target_group) = groups
+        let (_grp_idx, (target_group, rt_table)) = if let Some(target_group) = groups
             .iter_mut()
-            .find(|f| f.1.group_id().as_slice() == group_id)
+            .find(|f| f.1.0.group_id().as_slice() == group_id)
         {
             target_group
         } else {
@@ -168,10 +170,13 @@ impl CommandHandler {
             let grp = MlsGroup::load(&self.openmls_store, &GroupId::from_slice(group_id))?
                 .ok_or(ConanGroupError::NotFound)?;
             let dbgrp = self.dbconn.get_group_by_group_id(group_id)?;
-            groups.insert(dbgrp.id, grp);
+            let me = self.dbconn.get_peer_from_id(1)?.unwrap();
+            let mut table = RoutingTable::new(NodeId::from(me.address.as_str()));
+            self.fill_routing_table(&mut table, dbgrp.id)?;
+            groups.insert(dbgrp.id, (grp, table));
             let Some(target_group) = groups
                 .iter_mut()
-                .find(|f| f.1.group_id().as_slice() == group_id)
+                .find(|f| f.1.0.group_id().as_slice() == group_id)
             else {
                 return Err(ConanGroupError::NotFound.into());
             };
@@ -180,6 +185,12 @@ impl CommandHandler {
         // Adding the joinee via it's `KeyPackage`
         let (commit, welcome) =
             target_group.add_member(&self.provider, &self.signer, &key_package)?;
+        // adding joinee to routing table
+        let dbpeer = self
+            .dbconn
+            .get_peer_from_id(peer_idx)?
+            .ok_or(DatabaseError::NotFound)?;
+        rt_table.add_peer(NodeId::from(dbpeer.address.as_str()));
         let mut peers = self.peers.write().unwrap();
         let Some(peer) = peers.get_mut(&peer_idx) else {
             return Err(ConanError::NotFound("Peer".into()).into());
@@ -234,7 +245,6 @@ impl CommandHandler {
             } else {
                 false
             };
-            Log::debug(&format!("inserting member: {m}, is_admin: {is_admin}"));
             let peer = Peer::build(&generate_name(3..10), &m, false);
             self.dbconn.insert_member(dbgroup.id, peer, is_admin)?;
         }
@@ -258,20 +268,23 @@ impl CommandHandler {
         self.invitation_memory.write().unwrap().remove(&peer_idx);
         let mlsgrp = MlsGroup::load(&self.openmls_store, &GroupId::from_slice(group_id))?
             .ok_or(ConanError::NotFound("Group".to_string()))?;
+        let peer = self
+            .dbconn
+            .get_peer_from_id(peer_idx)?
+            .ok_or(ConanError::NotFound("Peer".to_string()))?;
         let db_group = self.dbconn.get_group_by_group_id(group_id)?;
         let mut groups = self.groups.write().unwrap();
-        groups.insert(db_group.id, mlsgrp);
+        let me = self.dbconn.get_peer_from_id(1)?.unwrap();
+        let mut table = RoutingTable::new(NodeId::from(me.address.as_str()));
+        self.fill_routing_table(&mut table, db_group.id)?;
+        table.add_peer(NodeId::from(peer.address.as_str()));
+        groups.insert(db_group.id, (mlsgrp, table));
         // the group is already saved in initializers database
         // so it can be retrieved
         let db_group = self.dbconn.get_group_by_group_id(group_id)?;
 
         // Inserting member in database
-        let peer = self
-            .dbconn
-            .get_peer_from_id(peer_idx)?
-            .ok_or(ConanError::NotFound("Peer".to_string()))?;
         self.dbconn.insert_member(db_group.id, peer, false)?;
-
         ConanNotif::Sys("Group Exchange Complete.".into()).notify()?;
         Ok(())
     }
@@ -285,10 +298,16 @@ impl CommandHandler {
             .ok_or(ConanError::NotFound("Invitation".to_string()))?;
         let group_id = GroupId::from_slice(&group_id);
         let mut groups = self.groups.write().unwrap();
-        let Some((_grp_idx, group)) = groups.iter_mut().find(|f| f.1.group_id() == &group_id)
+        let Some((_grp_idx, (group, rt_table))) =
+            groups.iter_mut().find(|f| f.1.0.group_id() == &group_id)
         else {
             return Err(ConanError::NotFound("Group".to_string()).into());
         };
+        let peer = self
+            .dbconn
+            .get_peer_from_id(peer_idx)?
+            .ok_or(DatabaseError::NotFound)?;
+        rt_table.remove_peer(&NodeId::from(peer.address.as_str()));
         group.clear_pending_commit(&self.openmls_store)?;
         let db_group = self.dbconn.get_group_by_group_id(&group_id.to_vec())?;
         if group.members().next().is_none() {
@@ -302,15 +321,15 @@ impl CommandHandler {
         &self,
         peer_idx: u16,
         group_id: &[u8],
-        message: &[u8],
+        raw_msg: &[u8],
     ) -> Result<(), Box<dyn Error>> {
-        let (message, _) = MlsMessageIn::tls_deserialize_bytes(message)?;
+        let (mls_msg, _) = MlsMessageIn::tls_deserialize_bytes(raw_msg)?;
         let mut groups = self.groups.write().unwrap();
         let dbgroup = self.dbconn.get_group_by_group_id(group_id)?;
-        let Some(group) = groups.get_mut(&dbgroup.id) else {
+        let Some((group, _rt_table)) = groups.get_mut(&dbgroup.id) else {
             return Err(ConanError::NotFound("Group".to_string()).into());
         };
-        let message = message.try_into_protocol_message()?;
+        let message = mls_msg.clone().try_into_protocol_message()?;
         let processed_message = group.process_message(&self.provider, message)?;
         // let sender = processed_message.sender();
         let sender_addr = processed_message.credential().to_addr();
@@ -407,6 +426,8 @@ impl CommandHandler {
             }
             _ => {}
         }
+        // forwarding whatever message we get to other members
+        self.forward_message(raw_msg, dbgroup.id, group)?;
         Ok(())
     }
 
@@ -416,9 +437,9 @@ impl CommandHandler {
         Ok(())
     }
 
-    pub fn remove_peer(&self, idx: u16) -> Result<(), Box<dyn Error>> {
+    pub fn remove_peer(&self, peer_idx: u16) -> Result<(), Box<dyn Error>> {
         if let Ok(mut guard) = self.peers.write()
-            && let Some(conn) = guard.remove(&idx)
+            && let Some(conn) = guard.remove(&peer_idx)
         {
             Log::info(&format!("Removing Connection: {}", conn.id));
             if let Ok(Some(peer)) = self.dbconn.get_peer_from_id(conn.id) {
@@ -427,9 +448,11 @@ impl CommandHandler {
         }
         let peers = self.peers.write().unwrap();
         let mut groups_to_kick = vec![];
-        if let Ok(groups) = self.groups.read() {
-            let group_vec = groups.iter().collect::<Vec<_>>();
-            for (idx, grp) in &group_vec {
+        if let Ok(mut groups) = self.groups.write() {
+            let mut group_vec = groups.iter_mut().collect::<Vec<_>>();
+            for (idx, (grp, rt_table)) in &mut group_vec {
+                let dbpeer = self.dbconn.get_peer_from_id(peer_idx)?.unwrap();
+                rt_table.remove_peer(&NodeId::from(dbpeer.address.as_str()));
                 let mut members = grp.get_members()?;
                 for idx in 0..members.len() {
                     let Some(m) = &members.get(idx) else {
@@ -448,6 +471,44 @@ impl CommandHandler {
         let mut groups = self.groups.write().unwrap();
         for idx in groups_to_kick {
             groups.remove(&idx);
+        }
+        Ok(())
+    }
+
+    fn forward_message(
+        &self,
+        raw_msg: &[u8],
+        id: u16,
+        group: &mut MlsGroup,
+    ) -> Result<(), Box<dyn Error>> {
+        let mut members_to_send = vec![];
+        {
+            let dbmembers = self.dbconn.list_members(id)?;
+            let active_peers = self.peers.write().unwrap();
+            for (peer, _) in dbmembers {
+                if active_peers.contains_key(&peer.id) {
+                    let peer = self.dbconn.get_peer_from_id(peer.id)?.unwrap();
+                    members_to_send.push(peer);
+                }
+            }
+        }
+        // Forwarding incoming messages to
+        self.asst_sndr.send(Internal::Msg(Msg::GroupAction(
+            group.group_id().to_vec(),
+            raw_msg.to_vec(),
+        )))?;
+        Ok(())
+    }
+
+    pub fn fill_routing_table(
+        &self,
+        table: &mut RoutingTable,
+        grp_id: u16,
+    ) -> Result<(), Box<dyn Error>> {
+        let members = self.dbconn.list_members(grp_id)?;
+        for member in members {
+            let node = NodeId::from(member.0.address.as_str());
+            table.add_peer(node);
         }
         Ok(())
     }

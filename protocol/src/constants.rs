@@ -26,3 +26,6 @@ pub const DATABASE_PATH: &str = "/.conan/database";
 
 /// `MlsGroup` Admin List Data
 pub const MLS_ADMIN_ID: u16 = 0xF001;
+
+/// Maintaining connection for mesh network
+pub const CONSISTENT_CONNECTION_LIMIT: usize = 3;

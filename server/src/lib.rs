@@ -356,7 +356,7 @@ impl ServerHandler {
     fn delete_group(&self, idx: u16) -> Result<(), Box<dyn Error>> {
         #[allow(clippy::cast_possible_truncation)]
         self.manager.dbconn.delete_group(idx)?;
-        if let Some(mut group) = self.manager.groups.write().unwrap().remove(&idx) {
+        if let Some((mut group, _)) = self.manager.groups.write().unwrap().remove(&idx) {
             group.delete(self.manager.provider.storage())?;
         }
         self.manager.msg_sender.send(IPCRes::DeletedGroup(idx))?;
@@ -468,8 +468,8 @@ impl ServerHandler {
     /// Panics if the group is not loaded in memory.
     fn remove_from_group(&self, group_idx: u16, peer_idx: u16) -> Result<(), Box<dyn Error>> {
         if let Ok(mut groups) = self.manager.groups.write() {
-            let target_grp = groups.get_mut(&group_idx).unwrap();
-            self.manager.remove_member(target_grp, peer_idx)?;
+            let (target_grp, rt_table) = groups.get_mut(&group_idx).unwrap();
+            self.manager.remove_member(target_grp, rt_table, peer_idx)?;
         } else {
             return Err(ConanError::Locked.into());
         }
@@ -506,9 +506,8 @@ impl ServerHandler {
     ///
     /// Panics if the list of the active groups is locked.
     fn group_connect(&mut self, idx: u16) -> Result<(), Box<dyn Error>> {
-        let mut group = self.manager.get_mls_group_from_idx(idx)?;
-        self.manager.connect_to_group(&mut group)?;
-        self.manager.groups.write().unwrap().insert(idx, group);
+        let group = self.manager.get_mls_group_from_idx(idx)?;
+        self.manager.connect_to_group(group)?;
         Ok(())
     }
 
@@ -524,13 +523,8 @@ impl ServerHandler {
     /// cannot be established.
     fn initiate_group(&mut self, grp_id: &[u8]) -> Result<(), Box<dyn Error>> {
         let dbgroup = self.manager.dbconn.get_group_by_group_id(grp_id)?;
-        let mut mlsgrp = self.manager.get_mls_group_from_idx(dbgroup.id)?;
-        self.manager.connect_to_group(&mut mlsgrp)?;
-        if let Ok(mut groups) = self.manager.groups.write() {
-            groups.insert(dbgroup.id, mlsgrp);
-        } else {
-            return Err(ConanError::ParseError.into());
-        }
+        let mlsgrp = self.manager.get_mls_group_from_idx(dbgroup.id)?;
+        self.manager.connect_to_group(mlsgrp)?;
         Ok(())
     }
 
@@ -598,7 +592,7 @@ impl ServerHandler {
     /// Panics if the list of the active groups is locked.
     fn group_text(&self, grp_idx: u16, text: &str) -> Result<(), Box<dyn Error>> {
         let mut groups = self.manager.groups.write().unwrap();
-        let Some(group) = groups.get_mut(&grp_idx) else {
+        let Some((group, _)) = groups.get_mut(&grp_idx) else {
             return Ok(());
         };
         self.manager.send_text(group, text)?;
@@ -616,7 +610,7 @@ impl ServerHandler {
     /// cannot be promoted.
     fn promote(&self, group_idx: u16, peer_idx: u16) -> Result<(), Box<dyn Error>> {
         if let Ok(mut groups) = self.manager.groups.write() {
-            let group = groups
+            let (group, _) = groups
                 .get_mut(&group_idx)
                 .ok_or(ConanError::NotFound("Group".into()))?;
             self.manager.promote_member(group, peer_idx)?;
@@ -636,7 +630,7 @@ impl ServerHandler {
     /// cannot be demoted.
     fn demote(&self, group_idx: u16, peer_idx: u16) -> Result<(), Box<dyn Error>> {
         if let Ok(mut groups) = self.manager.groups.write() {
-            let group = groups
+            let (group, _) = groups
                 .get_mut(&group_idx)
                 .ok_or(ConanError::NotFound("Group".into()))?;
             self.manager.demote_member(group, peer_idx)?;

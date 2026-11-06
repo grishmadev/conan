@@ -27,6 +27,7 @@ pub enum TuiCommand {
 pub enum PaletteCommand {
     AddToGroup(String),
     NewGroup(Option<String>),
+    Connections,
 }
 
 impl PaletteCommand {
@@ -47,6 +48,7 @@ impl PaletteCommand {
                 };
                 PaletteCommand::AddToGroup(name.to_string())
             }
+            "conns" => PaletteCommand::Connections,
             _ => {
                 return Err("No such Command".into());
             }
@@ -90,6 +92,10 @@ pub enum Screen {
         selected_option: Option<u16>,
         /// List of the Group Options
         options: Vec<GroupOptions>,
+    },
+    /// Shows all the connections in the entire app
+    ConnectionScreen {
+        peers: Vec<Peer>,
     },
     None,
 }

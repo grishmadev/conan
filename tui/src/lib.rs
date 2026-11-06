@@ -279,6 +279,10 @@ impl App {
                     selected_member,
                 );
             }
+            Screen::ConnectionScreen { ref peers } => {
+                todo!()
+                // self.render_connection_screen(f);
+            }
         }
     }
 

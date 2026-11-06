@@ -56,13 +56,16 @@ impl Keys for App {
         if event::poll(Duration::from_millis(10))?
             && let Event::Key(key) = event::read()?
         {
-            if key.code == KeyCode::Char('c')
-                && key
-                    .modifiers
-                    .contains(crossterm::event::KeyModifiers::CONTROL)
-            {
-                self.running = false;
-                return Ok(());
+            match (key.modifiers, key.code) {
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
+                    self.running = false;
+                    return Ok(());
+                }
+                (KeyModifiers::CONTROL, KeyCode::Char('l')) => {
+                    self.active_screen = Screen::ConnectionScreen { peers: vec![] };
+                    return Ok(());
+                }
+                _ => {}
             }
             match self.active_screen {
                 Screen::None => {
@@ -82,6 +85,9 @@ impl Keys for App {
                 }
                 Screen::GroupDescription { .. } => {
                     self.handle_grpdsc_screen(key)?;
+                }
+                Screen::ConnectionScreen { .. } => {
+                    todo!()
                 }
             }
         }
@@ -576,6 +582,10 @@ impl Keys for App {
                                 return Ok(());
                             };
                             self.send(IPCCmd::AddToGroup(curgrp.id, curcon.id)).await?;
+                        }
+                        PaletteCommand::Connections => {
+                            self.active_screen = Screen::ConnectionScreen { peers: vec![] };
+                            return Ok(());
                         }
                     }
                     self.active_screen = Screen::None;

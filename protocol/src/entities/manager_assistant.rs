@@ -171,7 +171,7 @@ impl CommandHandler {
                 .ok_or(ConanGroupError::NotFound)?;
             let dbgrp = self.dbconn.get_group_by_group_id(group_id)?;
             let me = self.dbconn.get_peer_from_id(1)?.unwrap();
-            let mut table = RoutingTable::new(NodeId::from(me.address.as_str()));
+            let mut table = RoutingTable::new(me.address.as_str());
             self.fill_routing_table(&mut table, dbgrp.id)?;
             groups.insert(dbgrp.id, (grp, table));
             let Some(target_group) = groups
@@ -190,7 +190,7 @@ impl CommandHandler {
             .dbconn
             .get_peer_from_id(peer_idx)?
             .ok_or(DatabaseError::NotFound)?;
-        rt_table.add_peer(NodeId::from(dbpeer.address.as_str()));
+        rt_table.add_peer(&dbpeer.address);
         let mut peers = self.peers.write().unwrap();
         let Some(peer) = peers.get_mut(&peer_idx) else {
             return Err(ConanError::NotFound("Peer".into()).into());
@@ -240,11 +240,7 @@ impl CommandHandler {
         let dbgroup = DBGroup::new(grp_id.clone(), generate_name(3..8));
         let dbgroup = self.dbconn.insert_group(dbgroup)?;
         for m in mls_grp.get_members()? {
-            let is_admin = if self.dbconn.get_peer_from_addr(&m)?.is_some() {
-                mls_grp.is_admin(&m)?
-            } else {
-                false
-            };
+            let is_admin = self.dbconn.get_peer_from_addr(&m)?.is_some() && mls_grp.is_admin(&m)?;
             let peer = Peer::build(&generate_name(3..10), &m, false);
             self.dbconn.insert_member(dbgroup.id, peer, is_admin)?;
         }
@@ -273,12 +269,13 @@ impl CommandHandler {
             .get_peer_from_id(peer_idx)?
             .ok_or(ConanError::NotFound("Peer".to_string()))?;
         let db_group = self.dbconn.get_group_by_group_id(group_id)?;
-        let mut groups = self.groups.write().unwrap();
         let me = self.dbconn.get_peer_from_id(1)?.unwrap();
-        let mut table = RoutingTable::new(NodeId::from(me.address.as_str()));
+        let mut table = RoutingTable::new(me.address.as_str());
         self.fill_routing_table(&mut table, db_group.id)?;
-        table.add_peer(NodeId::from(peer.address.as_str()));
-        groups.insert(db_group.id, (mlsgrp, table));
+        table.add_peer(&peer.address);
+        if let Ok(mut groups) = self.groups.write() {
+            groups.insert(db_group.id, (mlsgrp, table));
+        };
         // the group is already saved in initializers database
         // so it can be retrieved
         let db_group = self.dbconn.get_group_by_group_id(group_id)?;
@@ -327,6 +324,8 @@ impl CommandHandler {
         let mut groups = self.groups.write().unwrap();
         let dbgroup = self.dbconn.get_group_by_group_id(group_id)?;
         let Some((group, _rt_table)) = groups.get_mut(&dbgroup.id) else {
+            self.asst_sndr
+                .send(Internal::Msg(Msg::InitiateGroup(dbgroup.group_id)))?;
             return Err(ConanError::NotFound("Group".to_string()).into());
         };
         let message = mls_msg.clone().try_into_protocol_message()?;
@@ -336,6 +335,7 @@ impl CommandHandler {
         let content = processed_message.into_content();
         match content {
             ProcessedMessageContent::ApplicationMessage(msg) => {
+                Log::debug("Application Message");
                 let content = msg.into_bytes();
                 let data = String::from_utf8_lossy(&content).to_string();
                 let dbgroup = self.dbconn.get_group_by_group_id(group_id)?;
@@ -351,7 +351,7 @@ impl CommandHandler {
             }
             ProcessedMessageContent::ProposalMessage(proposal) => {
                 Log::debug(&format!(
-                    "Received proposal: {:?}",
+                    "Proposal Message: {:?}",
                     proposal.proposal().proposal_type()
                 ));
                 // for now we only act on members asking to leave on their own
@@ -391,6 +391,7 @@ impl CommandHandler {
                 self.dbconn.remove_member(sender_peer.id, dbgroup.id)?;
             }
             ProcessedMessageContent::StagedCommitMessage(commit) => {
+                Log::debug("Staged Commit Message");
                 if !group.is_admin(&sender_addr)? {
                     let db_peer = self
                         .dbconn
@@ -507,8 +508,7 @@ impl CommandHandler {
     ) -> Result<(), Box<dyn Error>> {
         let members = self.dbconn.list_members(grp_id)?;
         for member in members {
-            let node = NodeId::from(member.0.address.as_str());
-            table.add_peer(node);
+            table.add_peer(&member.0.address);
         }
         Ok(())
     }

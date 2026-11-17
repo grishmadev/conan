@@ -334,12 +334,6 @@ impl Manager {
             return Err(ConanError::ParseError.into());
         };
         let dbgroup = self.dbconn.get_group_by_idx(group_idx)?;
-        // let self_link = self
-        //     .dbconn
-        //     .get_peer_from_id(1)?
-        //     .ok_or(ConanError::from(DatabaseError::NotFound))?
-        //     .address;
-        // let group = MlsGroup::build(&self.identity_key, &self_link)?;
         Log::debug(&format!(
             "Loading group from database: {:?}",
             dbgroup.group_id
@@ -351,8 +345,11 @@ impl Manager {
         .ok_or(ConanGroupError::NotFound)?;
         // Loading it in memory
         Log::debug("Loading group in memory.");
-        let me = self.dbconn.get_peer_from_id(1)?.unwrap();
-        let mut table = RoutingTable::new(NodeId::from(me.address.as_str()));
+        let me = self
+            .dbconn
+            .get_peer_from_id(1)?
+            .ok_or(DatabaseError::NotFound)?;
+        let mut table = RoutingTable::new(me.address.as_str());
         self.fill_routing_table(&mut table, group_idx)?;
         groups.insert(group_idx, (group, table));
         if let Ok(mut invitation) = self.invitation_memory.write() {
@@ -389,6 +386,7 @@ impl Manager {
                 sndr,
             );
             while let Ok((peer_idx, internal)) = rec.recv().await {
+                Log::debug(&format!("Running: {internal:?}"));
                 let res = match internal {
                     Internal::Msg(msg) => match msg {
                         Msg::Text(text) => cmdhandler.handle_msg_text(peer_idx, text),
@@ -409,7 +407,7 @@ impl Manager {
                         _ => unimplemented!(),
                     },
                     Internal::RemovePeer(idx) => cmdhandler.remove_peer(idx),
-                    _ => continue,
+                    _ => unimplemented!(),
                 };
                 if let Err(err) = res {
                     Log::err(&format!("Error in Msg: {err:?}"));
@@ -427,10 +425,12 @@ impl Manager {
             .get_group_by_group_id(&group.group_id().to_vec())?;
         // getting only enough members to connect
         let members_to_connect = self.get_connecting_members(dbgroup.id)?;
+        Log::debug("Connect Group");
+        Log::debug(&format!("members to connect to: {members_to_connect:#?}"));
 
         let mut set = tokio::task::JoinSet::new();
 
-        for peer in members_to_connect {
+        for peer in members_to_connect.clone() {
             if peer.id == 1 {
                 continue;
             }
@@ -453,10 +453,12 @@ impl Manager {
                 .await
             });
         }
+        // let mtc: HashSet<_> = members_to_connect.iter().map(|f| f.idcollect();
         let msg_sender = self.msg_sender.clone();
         let peers = Arc::clone(&self.peers);
         let group_id = dbgroup.group_id.clone();
 
+        // let db_members = self.dbconn.list_members(dbgroup.id)?;
         tokio::spawn(async move {
             while let Some(Ok(res)) = set.join_next().await {
                 let group_id = group_id.clone();
@@ -472,6 +474,24 @@ impl Manager {
                     Log::debug("attempted to join.");
                 }
             }
+            // let residual_members: Vec<_> = db_members
+            //     .iter()
+            //     .filter(|f| !mtc.contains(&f.0.id))
+            //     .collect();
+
+            // for (m, _) in residual_members {
+            //     let group_id = group_id.clone();
+            //     let peers = peers.write().unwrap();
+            //     if let Some(target) = peers.get(&m.id) {
+            //         Log::debug("Sending initiate group command");
+            //         target
+            //             .command_sender
+            //             .send(SlaveCmd::Msg(Msg::InitiateGroup(group_id)))
+            //             .unwrap();
+            //     }
+            //     Log::debug("attempted to join.");
+            // }
+
             if let Err(e) = msg_sender.send(IPCRes::GroupConnected(
                 format!("Connected to {}", dbgroup.name).to_string(),
                 dbgroup.id,
@@ -484,7 +504,7 @@ impl Manager {
             .dbconn
             .get_peer_from_id(1)?
             .ok_or(DatabaseError::NotFound)?;
-        let mut table = RoutingTable::new(NodeId::from(me.address.as_str()));
+        let mut table = RoutingTable::new(me.address.as_str());
         self.fill_routing_table(&mut table, dbgroup.id)?;
         // Inserting group in memory
         self.groups
@@ -497,8 +517,12 @@ impl Manager {
     /// # Errors
     /// # Panics
     fn send_msg(&self, grp: &mut MlsGroup, msg: &Msg) -> Result<(), Box<dyn Error>> {
-        let peers = self.peers.read().unwrap();
+        Log::debug("Send message called");
         let members = grp.get_members()?;
+        let peers = self.peers.read().unwrap();
+        for p in peers.iter() {
+            Log::debug(&format!("active peers: {:?} => {:?}", p.0, p.1.id));
+        }
         for m in &members {
             let msg = msg.clone();
             // fanning out to connected active members
@@ -506,7 +530,11 @@ impl Manager {
                 Log::err("Could not get targetted member.");
                 continue;
             };
+            if peer.id == 1 {
+                continue;
+            }
             if let Some(peer) = peers.get(&peer.id) {
+                Log::debug(&format!("needed peer: {}", peer.id));
                 peer.command_sender.send(SlaveCmd::Msg(msg))?;
             } else {
                 Log::err(&format!("Targetted Peer (id: {}) not found", peer.id));
@@ -602,8 +630,14 @@ impl Manager {
         let mut candidates = vec![];
         let active_members = &self.peers;
         let mut all_members = self.dbconn.list_members(group_idx)?;
-        let me = self.dbconn.get_peer_from_id(1)?.unwrap();
+
+        let me = self
+            .dbconn
+            .get_peer_from_id(1)?
+            .ok_or("Local peer not found in DB")?;
         let self_nodeid = NodeId::from(me.address.as_str());
+
+        // Sort by XOR distance to local node
         all_members.sort_by(|a, b| {
             let dist_a = self_nodeid.distance(&NodeId::from(a.0.address.as_str()));
             let dist_b = self_nodeid.distance(&NodeId::from(b.0.address.as_str()));
@@ -611,23 +645,30 @@ impl Manager {
         });
 
         let current_active = active_members.read().unwrap();
-        let current_active = current_active
+        let current_active_ids: HashSet<u16> = current_active
             .iter()
-            .filter(|f| all_members.iter().any(|x| x.0.id == *f.0))
-            .collect::<Vec<_>>();
-        if current_active.len() >= CONSISTENT_CONNECTION_LIMIT
-            || current_active.len() == all_members.len()
+            .filter(|(_, slave)| all_members.iter().any(|x| x.0.id == slave.id))
+            .map(|(id, _)| *id)
+            .collect();
+
+        if current_active_ids.len() >= CONSISTENT_CONNECTION_LIMIT
+            || current_active_ids.len() == all_members.len()
         {
             return Ok(candidates);
         }
 
-        let needed = current_active.len() - CONSISTENT_CONNECTION_LIMIT;
+        let needed = CONSISTENT_CONNECTION_LIMIT.saturating_sub(current_active_ids.len());
+
         for (peer, _is_admin) in all_members {
-            if current_active.iter().any(|x| *x.0 == peer.id) || peer.id == 1 {
+            if current_active_ids.contains(&peer.id) || peer.id == 1 {
                 continue;
             }
 
-            if self_nodeid < NodeId::from(peer.address.as_str()) {
+            let peer_nodeid = NodeId::from(peer.address.as_str());
+
+            // Deterministic check: Prevent double-dialing.
+            // If our ID is greater, we only dial if we have zero active connections (bootstrap fallback).
+            if self_nodeid < peer_nodeid || current_active_ids.is_empty() {
                 candidates.push(peer);
             }
 
@@ -639,6 +680,7 @@ impl Manager {
         Ok(candidates)
     }
 
+    /// # Errors
     pub fn fill_routing_table(
         &self,
         table: &mut RoutingTable,
@@ -646,8 +688,7 @@ impl Manager {
     ) -> Result<(), Box<dyn Error>> {
         let members = self.dbconn.list_members(grp_id)?;
         for member in members {
-            let node = NodeId::from(member.0.address.as_str());
-            table.add_peer(node);
+            table.add_peer(&member.0.address);
         }
         Ok(())
     }

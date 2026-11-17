@@ -23,7 +23,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut handler = ServerHandler::setup(manager, signing_key)?;
     loop {
         if let Ok(cmd) = worker_receiver.recv() {
-            handler.handle_commands(cmd)?;
+            if let Err(e) = handler.handle_commands(cmd) {
+                Log::err(&format!("Handle Command Error: {e:?}"));
+            }
         } else {
             msg_sender.send(IPCRes::Error(
                 "Could not parse or reply to message.".to_string(),

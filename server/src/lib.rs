@@ -467,11 +467,23 @@ impl ServerHandler {
     ///
     /// Panics if the group is not loaded in memory.
     fn remove_from_group(&self, group_idx: u16, peer_idx: u16) -> Result<(), Box<dyn Error>> {
+        Log::debug(&format!(
+            "Remove from group called for grp idx: {group_idx}"
+        ));
         if let Ok(mut groups) = self.manager.groups.write() {
-            let (target_grp, rt_table) = groups.get_mut(&group_idx).unwrap();
+            for g in groups.iter() {
+                Log::debug(&format!("groups: {} => {:?}", g.0, g.1.1.peers()));
+            }
+            let Some((target_grp, rt_table)) = groups.get_mut(&group_idx) else {
+                self.manager.msg_sender.send(IPCRes::Notification(
+                    "Group not loaded. Connect to group first.".to_string(),
+                ))?;
+                return Ok(());
+            };
             self.manager.remove_member(target_grp, rt_table, peer_idx)?;
         } else {
-            return Err(ConanError::Locked.into());
+            Log::err("Group locked at the moment. Try again later.");
+            return Ok(());
         }
         Ok(())
     }
@@ -506,6 +518,7 @@ impl ServerHandler {
     ///
     /// Panics if the list of the active groups is locked.
     fn group_connect(&mut self, idx: u16) -> Result<(), Box<dyn Error>> {
+        Log::debug("Group Connect called");
         let group = self.manager.get_mls_group_from_idx(idx)?;
         self.manager.connect_to_group(group)?;
         Ok(())

@@ -1161,6 +1161,7 @@ name = "conan-kademlia"
 version = "2.2.0"
 dependencies = [
  "safelog",
+ "sha2 0.11.0",
  "tor-hsservice",
 ]
 

@@ -1,4 +1,4 @@
-use crate::nodeid::NodeId;
+use crate::nodeid::{Node, NodeId};
 use std::collections::VecDeque;
 
 pub const MAX_NODE: usize = 2;
@@ -6,7 +6,7 @@ pub const MAX_NODE: usize = 2;
 #[derive(Debug, Clone)]
 pub struct KBucket {
     max_size: usize,
-    nodes: VecDeque<NodeId>,
+    nodes: VecDeque<Node>,
 }
 
 impl KBucket {
@@ -18,7 +18,7 @@ impl KBucket {
         }
     }
 
-    pub fn insert(&mut self, node: NodeId) -> bool {
+    pub fn insert(&mut self, node: Node) -> bool {
         if let Some(idx) = self.nodes.iter().position(|f| f == &node) {
             self.nodes.remove(idx);
             self.nodes.push_back(node);
@@ -34,17 +34,28 @@ impl KBucket {
         false
     }
 
-    pub fn remove(&mut self, node: &NodeId) -> bool {
-        if let Some(idx) = self.nodes.iter().position(|f| f == node) {
-            self.nodes.remove(idx);
-            return true;
+    pub fn remove_via_address(&mut self, addr: &str) -> bool {
+        if let Some(idx) = self.nodes.iter().position(|f| f.address() == addr) {
+            return self.remove(idx);
         }
         false
     }
 
+    pub fn remove_via_id(&mut self, node: &NodeId) -> bool {
+        if let Some(idx) = self.nodes.iter().position(|f| f.node_id() == node) {
+            return self.remove(idx);
+        }
+        false
+    }
+
+    pub(crate) fn remove(&mut self, idx: usize) -> bool {
+        self.nodes.remove(idx);
+        true
+    }
+
     #[must_use]
-    pub fn list(&self) -> Vec<NodeId> {
-        self.nodes.iter().copied().collect::<Vec<NodeId>>()
+    pub fn list(&self) -> Vec<Node> {
+        self.nodes.iter().cloned().collect::<Vec<Node>>()
     }
 
     #[must_use]

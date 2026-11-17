@@ -1,27 +1,17 @@
 use std::fmt::Display;
 
 use safelog::DisplayRedacted;
+use sha2::{Digest, Sha256};
 use tor_hsservice::HsId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NodeId([u8; 32]);
 
-impl From<HsId> for NodeId {
-    fn from(value: HsId) -> Self {
-        let val = value
-            .display_unredacted()
-            .to_string()
-            .into_bytes()
-            .try_into()
-            .unwrap();
-        Self(val)
-    }
-}
-
 impl From<&str> for NodeId {
     fn from(value: &str) -> Self {
-        println!("node address: {value}");
-        Self(value.as_bytes().try_into().unwrap())
+        let clean = value.trim_end_matches(".onion");
+        let hash = Sha256::digest(clean.as_bytes()).into();
+        Self(hash)
     }
 }
 
@@ -48,8 +38,50 @@ impl NodeId {
     }
 }
 
-impl Display for NodeId {
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Node {
+    id: NodeId,
+    address: String,
+}
+
+impl Node {
+    #[must_use]
+    pub fn new(address: &str) -> Self {
+        Self {
+            id: NodeId::from(address),
+            address: address.to_string(),
+        }
+    }
+    #[must_use]
+    pub fn node_id(&self) -> &NodeId {
+        &self.id
+    }
+    #[must_use]
+    pub fn address(&self) -> String {
+        self.address.clone()
+    }
+}
+
+impl Display for Node {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", String::from_utf8_lossy(&self.0))
+        write!(f, "{}", self.address)
+    }
+}
+impl From<HsId> for Node {
+    fn from(value: HsId) -> Self {
+        let address = value.display_unredacted().to_string();
+        Node {
+            id: NodeId::from(address.as_str()),
+            address,
+        }
+    }
+}
+
+impl From<&str> for Node {
+    fn from(value: &str) -> Self {
+        Self {
+            id: NodeId::from(value),
+            address: value.to_string(),
+        }
     }
 }
